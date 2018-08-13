@@ -17,6 +17,7 @@ set(HDRS
 )
 
 set(SRCS
+    src/main.cpp
     src/cmgen.cpp
     src/Cubemap.cpp
     src/CubemapIBL.cpp
@@ -54,3 +55,11 @@ target_include_directories(${TARGET} PRIVATE ${GENERATION_ROOT})
 # Installation
 # ==================================================================================================
 install(TARGETS ${TARGET} RUNTIME DESTINATION bin)
+
+# ==================================================================================================
+# Tests
+# ==================================================================================================
+if (NOT ANDROID)
+    add_executable(test_${TARGET} tests/test_cmgen.cpp)
+    target_link_libraries(test_${TARGET} PRIVATE image imageio gtest)
+endif()
