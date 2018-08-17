@@ -311,7 +311,7 @@ static void setup(Engine* engine, View* view, Scene* scene) {
             .color(Color::toLinear<ACCURATE>(sRGBColor{0.98f, 0.92f, 0.89f}))
             .intensity(110000.0f)
             .direction({0.6f, -1.0f, -0.8f})
-            .castShadows(true)
+            //.castShadows(true)
             .build(*engine, g_light);
 
     if (g_lightOn) {
@@ -323,7 +323,8 @@ static void setup(Engine* engine, View* view, Scene* scene) {
     }
 
     if (!g_skyboxOn) {
-        FilamentApp::get().getIBL()->getSkybox()->setLayerMask(0xff, 0x00);
+        auto ibl = FilamentApp::get().getIBL();
+        if (ibl) ibl->getSkybox()->setLayerMask(0xff, 0x00);
     }
 
     view->setClearColor(Color::toLinear({
@@ -335,9 +336,8 @@ static void setup(Engine* engine, View* view, Scene* scene) {
 }
 
 template<typename T>
-static Image toLinear(size_t w, size_t h, size_t bpr, const uint8_t* src) {
-    std::unique_ptr<uint8_t[]> buffer(new uint8_t[w * h * 3 * sizeof(float3)]);
-    Image result(std::move(buffer), w, h, w * sizeof(float3), sizeof(float3));
+static LinearImage toLinear(size_t w, size_t h, size_t bpr, const uint8_t* src) {
+    LinearImage result(w, h, 3);
     math::float3* d = reinterpret_cast<math::float3*>(result.getPixelRef(0, 0));
     for (size_t y = 0; y < h; ++y) {
         T const* p = reinterpret_cast<T const*>(src + y * bpr);
@@ -381,7 +381,7 @@ static void postRender(Engine*, View* view, Scene*, Renderer* renderer) {
                     CaptureState* state = static_cast<CaptureState*>(user);
                     const Viewport& v = state->view->getViewport();
 
-                    Image image(toLinear<uint8_t>(v.width, v.height, v.width * 3,
+                    LinearImage image(toLinear<uint8_t>(v.width, v.height, v.width * 3,
                             static_cast<uint8_t*>(buffer)));
 
                     int digits = (int) log10 ((double) g_materialVariantCount) + 1;
