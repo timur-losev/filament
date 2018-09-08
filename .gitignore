@@ -9,4 +9,4 @@ dist-*
 toolchains
 filament/docs/html/**
 .vscode
-build
+build.debug/
