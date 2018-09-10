@@ -24,7 +24,6 @@
 #include <math/scalar.h>
 #include <math/vec4.h>
 
-#include <image/Image.h>
 #include <imageio/ImageDecoder.h>
 #include <imageio/ImageEncoder.h>
 
@@ -36,6 +35,7 @@
 #include "CubemapIBL.h"
 #include "CubemapSH.h"
 #include "CubemapUtils.h"
+#include "Image.h"
 
 using namespace math;
 using namespace image;
@@ -71,6 +71,9 @@ static bool g_dfg = false;
 static utils::Path g_dfg_filename;
 static bool g_dfg_multiscatter = false;
 
+static bool g_ibl_irradiance = false;
+static utils::Path g_ibl_irradiance_dir;
+
 static bool g_deploy = false;
 static utils::Path g_deploy_dir;
 
@@ -83,6 +86,8 @@ static bool g_mirror = false;
 static void generateMipmaps(std::vector<Cubemap>& levels, std::vector<Image>& images);
 static void sphericalHarmonics(const utils::Path& iname, const Cubemap& inputCubemap);
 static void iblRoughnessPrefilter(const utils::Path& iname, const std::vector<Cubemap>& levels,
+        const utils::Path& dir);
+static void iblDiffuseIrradiance(const utils::Path& iname, const std::vector<Cubemap>& levels,
         const utils::Path& dir);
 static void iblMipmapPrefilter(const utils::Path& iname, const std::vector<Image>& images,
         const std::vector<Cubemap>& levels, const utils::Path& dir);
@@ -117,15 +122,15 @@ static void printUsage(char* name) {
             "\n"
             "Options:\n"
             "   --help, -h\n"
-            "       print this message\n\n"
+            "       Print this message\n\n"
             "   --license\n"
             "       Print copyright and license information\n\n"
             "   --quiet, -q\n"
             "       Quiet mode. Suppress all non-error output\n\n"
             "   --format=[exr|hdr|psd|rgbm|png|dds], -f [exr|hdr|psd|rgbm|png|dds]\n"
-            "       specify output file format\n\n"
+            "       Specify output file format\n\n"
             "   --compression=COMPRESSION, -c COMPRESSION\n"
-            "       format specific compression:\n"
+            "       Format specific compression:\n"
             "           PNG: Ignored\n"
             "           PNG RGBM: Ignored\n"
             "           Radiance: Ignored\n"
@@ -133,7 +138,7 @@ static void printUsage(char* name) {
             "           OpenEXR: RAW, RLE, ZIPS, ZIP, PIZ (default)\n"
             "           DDS: 8, 16 (default), 32\n\n"
             "   --size=power-of-two, -s power-of-two\n"
-            "       size of the output cubemaps (base level), 256 by default\n\n"
+            "       Size of the output cubemaps (base level), 256 by default\n\n"
             "   --deploy=dir, -x dir\n"
             "       Generate everything needed for deployment into <dir>\n\n"
             "   --extract=dir\n"
@@ -147,13 +152,15 @@ static void printUsage(char* name) {
             "\n"
             "Private use only:\n"
             "   --ibl-dfg=filename.[exr|hdr|psd|png|rgbm|dds|h|hpp|c|cpp|inc|txt]\n"
-            "       Computes the IBL DFG LUT\n\n"
+            "       Compute the IBL DFG LUT\n\n"
             "   --ibl-dfg-multiscatter\n"
             "       If --ibl-dfg is set, computes the DFG for multi-scattering GGX\n\n"
             "   --ibl-is-mipmap=dir\n"
-            "       Generates mipmap for pre-filtered importance sampling\n\n"
+            "       Generate mipmap for pre-filtered importance sampling\n\n"
             "   --ibl-ld=dir\n"
             "       Roughness prefilter into <dir>\n\n"
+            "   --ibl-irradiance=dir\n"
+            "       Diffuse irradiance into <dir>\n\n"
             "   --sh=bands\n"
             "       SH decomposition of input cubemap\n\n"
             "   --sh-output=filename.[exr|hdr|psd|rgbm|png|dds|txt]\n"
@@ -195,6 +202,7 @@ static int handleCommandLineArgments(int argc, char* argv[]) {
             { "sh-shader",                  no_argument, nullptr, 'b' },
             { "ibl-is-mipmap",        required_argument, nullptr, 'y' },
             { "ibl-ld",               required_argument, nullptr, 'p' },
+            { "ibl-irradiance",       required_argument, nullptr, 'P' },
             { "ibl-dfg",              required_argument, nullptr, 'a' },
             { "ibl-dfg-multiscatter",       no_argument, nullptr, 'u' },
             { "ibl-samples",          required_argument, nullptr, 'k' },
@@ -304,6 +312,10 @@ static int handleCommandLineArgments(int argc, char* argv[]) {
             case 'p':
                 g_prefilter = true;
                 g_prefilter_dir = arg;
+                break;
+            case 'P':
+                g_ibl_irradiance = true;
+                g_ibl_irradiance_dir = arg;
                 break;
             case 'a':
                 g_dfg = true;
@@ -524,6 +536,13 @@ int main(int argc, char* argv[]) {
         iblRoughnessPrefilter(iname, levels, g_prefilter_dir);
     }
 
+    if (g_ibl_irradiance) {
+        if (!g_quiet) {
+            std::cout << "IBL diffuse irradiance..." << std::endl;
+        }
+        iblDiffuseIrradiance(iname, levels, g_ibl_irradiance_dir);
+    }
+
     if (g_extract_faces) {
         Cubemap const& cm(levels[0]);
         if (g_extract_blur != 0) {
@@ -614,8 +633,8 @@ void sphericalHarmonics(const utils::Path& iname, const Cubemap& inputCubemap) {
             { // save a file with what we just calculated (radiance or irradiance)
                 std::string basename = iname.getNameWithoutExtension();
                 utils::Path filePath =
-                        outputDir + (basename + "_sh" + (g_sh_irradiance ? "_i" : "_r") + ".png");
-                saveImage(filePath, ImageEncoder::Format::PNG, image, "");
+                        outputDir + (basename + "_sh" + (g_sh_irradiance ? "_i" : "_r") + ".hdr");
+                saveImage(filePath, ImageEncoder::Format::HDR, image, "");
             }
 
             { // save a file with the "other one" (irradiance or radiance)
@@ -623,8 +642,8 @@ void sphericalHarmonics(const utils::Path& iname, const Cubemap& inputCubemap) {
                 CubemapSH::renderSH(cm, sh, g_sh_compute);
                 std::string basename = iname.getNameWithoutExtension();
                 utils::Path filePath =
-                        outputDir + (basename + "_sh" + (!g_sh_irradiance ? "_i" : "_r") + ".png");
-                saveImage(filePath, ImageEncoder::Format::PNG, image, "");
+                        outputDir + (basename + "_sh" + (!g_sh_irradiance ? "_i" : "_r") + ".hdr");
+                saveImage(filePath, ImageEncoder::Format::HDR, image, "");
             }
         }
     }
@@ -675,7 +694,7 @@ void iblMipmapPrefilter(const utils::Path& iname,
         Cubemap const& dst(levels[level]);
         Image const& img(images[level]);
         if (g_debug) {
-            ImageEncoder::Format debug_format = ImageEncoder::Format::PNG;
+            ImageEncoder::Format debug_format = ImageEncoder::Format::HDR;
             std::string ext = ImageEncoder::chooseExtension(debug_format);
             std::string basename = iname.getNameWithoutExtension();
             utils::Path filePath = outputDir + (basename + "_is_m" + (std::to_string(level) + ext));
@@ -730,7 +749,7 @@ void iblRoughnessPrefilter(const utils::Path& iname,
         CubemapIBL::roughnessFilter(dst, levels, linear_roughness, numSamples);
 
         if (g_debug) {
-            ImageEncoder::Format debug_format = ImageEncoder::Format::PNG;
+            ImageEncoder::Format debug_format = ImageEncoder::Format::HDR;
             std::string ext = ImageEncoder::chooseExtension(debug_format);
             std::string basename = iname.getNameWithoutExtension();
             utils::Path filePath = outputDir + (basename + "_roughness_m" + (std::to_string(level) + ext));
@@ -744,6 +763,45 @@ void iblRoughnessPrefilter(const utils::Path& iname,
                     + ("m" + std::to_string(level) + "_" + CubemapUtils::getFaceName(face) + ext);
             saveImage(filename, g_format, dst.getImageForFace(face), g_compression);
         }
+    }
+}
+
+void iblDiffuseIrradiance(const utils::Path& iname,
+        const std::vector<Cubemap>& levels, const utils::Path& dir) {
+    utils::Path outputDir(dir.getAbsolutePath() + iname.getNameWithoutExtension());
+    if (!outputDir.exists()) {
+        outputDir.mkdirRecursive();
+    }
+
+    const size_t baseExp = __builtin_ctz(g_output_size ? g_output_size : 256);
+    size_t numSamples = g_num_samples;
+    const size_t dim = 1U << baseExp;
+    Image image;
+    Cubemap dst = CubemapUtils::create(image, dim);
+    CubemapIBL::diffuseIrradiance(dst, levels, numSamples);
+
+    std::string ext = ImageEncoder::chooseExtension(g_format);
+    for (size_t j = 0; j < 6; j++) {
+        Cubemap::Face face = (Cubemap::Face) j;
+        std::string filename = outputDir + ("i_" + CubemapUtils::getFaceName(face) + ext);
+        saveImage(filename, g_format, dst.getImageForFace(face), g_compression);
+    }
+
+    if (g_debug) {
+        ImageEncoder::Format debug_format = ImageEncoder::Format::HDR;
+        std::string basename = iname.getNameWithoutExtension();
+        std::string ext = ImageEncoder::chooseExtension(debug_format);
+        utils::Path filePath = outputDir + (basename + "_diffuse_irradiance" + ext);
+        saveImage(filePath, debug_format, image, "");
+
+        // this generates SHs from the importance-sampled version above. This is just used
+        // to compare the resuts and see if the later is better.
+        Image image;
+        Cubemap cm = CubemapUtils::create(image, dim);
+        auto sh = CubemapSH::computeSH(dst, g_sh_compute, false);
+        CubemapSH::renderSH(cm, sh, g_sh_compute);
+        filePath = outputDir + (basename + "_diffuse_irradiance_sh" + ext);
+        saveImage(filePath, debug_format, image, "");
     }
 }
 

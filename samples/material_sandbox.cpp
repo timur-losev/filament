@@ -368,7 +368,7 @@ static void setup(Engine* engine, View*, Scene* scene) {
         scene->addEntity(planeRenderable);
 
         tcm.setTransform(tcm.getInstance(planeRenderable),
-                math::mat4f::translate(float4{0, -1, -4, 1}));
+                math::mat4f::translate(float3{0, -1, -4}));
     }
 }
 
@@ -502,7 +502,7 @@ static void gui(filament::Engine* engine, filament::View*) {
     auto lightInstance = lcm.getInstance(g_light);
     lcm.setColor(lightInstance, g_lightColor);
     lcm.setIntensity(lightInstance, g_lightIntensity);
-    lcm.setDirection(lightInstance, normalize(g_lightDirection));
+    lcm.setDirection(lightInstance, g_lightDirection);
     lcm.setSunAngularRadius(lightInstance, g_sunAngularRadius);
     lcm.setSunHaloSize(lightInstance, g_sunHaloSize);
     lcm.setSunHaloFalloff(lightInstance, g_sunHaloFalloff);

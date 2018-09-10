@@ -1,24 +1,40 @@
-![Filament logo](docs/images/filament_logo_small.png)
-
 # Filament
 
-Filament is a physically based rendering engine for Android, Linux, macOS and Windows. This
-rendering engine was designed to be as small as possible and as efficient as possible on Android.
+<img alt="Android" src="build/img/android.png" width="20px" height="20px" hspace="2px"/>[![Android Build Status](https://filament-build.storage.googleapis.com/badges/build_status_android.svg)](https://filament-build.storage.googleapis.com/badges/build_link_android.html)
+<img alt="Linux" src="build/img/linux.png" width="20px" height="20px" hspace="2px"/>[![Linux Build Status](https://filament-build.storage.googleapis.com/badges/build_status_linux.svg)](https://filament-build.storage.googleapis.com/badges/build_link_linux.html)
+<img alt="macOS" src="build/img/macos.png" width="20px" height="20px" hspace="2px"/>[![MacOS Build Status](https://filament-build.storage.googleapis.com/badges/build_status_mac.svg)](https://filament-build.storage.googleapis.com/badges/build_link_mac.html)
+<img alt="Windows" src="build/img/windows.png" width="20px" height="20px" hspace="2px"/>[![Windows Build Status](https://filament-build.storage.googleapis.com/badges/build_status_windows.svg)](https://filament-build.storage.googleapis.com/badges/build_link_windows.html)
+<img alt="Web" src="build/img/web.png" width="20px" height="20px" hspace="2px"/>[![Web Build Status](https://filament-build.storage.googleapis.com/badges/build_status_web.svg)](https://filament-build.storage.googleapis.com/badges/build_link_web.html)
+
+Filament is a real-time physically based rendering engine for Android, Linux, macOS and Windows.
+This rendering engine was designed to be as small as possible and as efficient as possible
+on Android.
 
 Filament is currently used in the
 [Sceneform](https://developers.google.com/ar/develop/java/sceneform/) library both at runtime on
 Android devices and as the renderer inside the Android Studio plugin.
 
+## Download
+
+[Download Filament releases](https://github.com/google/filament/releases) to access stable builds.
+
+If you prefer to live on the edge, you can download continuous builds directly:
+- [Android](https://filament-build.storage.googleapis.com/badges/build_link_android.html)
+- [Linux](https://filament-build.storage.googleapis.com/badges/build_link_linux.html)
+- [macOS](https://filament-build.storage.googleapis.com/badges/build_link_mac.html)
+- [Windows](https://filament-build.storage.googleapis.com/badges/build_link_windows.html)
+
 ## Documentation
 
-- [Filament](https://google.github.io/filament/Filament.md.html), an in-depth explanation of real-time physically
-  based rendering, the graphics capabilities and implementation of Filament. This document explains the math and
-  reasoning behind most of our decisions. This document is a good introduction to PBR for graphics programmers.
-- [Materials](https://google.github.io/filament//Materials.md.html), the full reference documentation for our material system.
-  This document explains our different material models, how to use the material compiler `matc` and
-  how to write custom materials.
-- [Material Properties](https://google.github.io/filament/Material%20Properties.pdf), a reference sheet for the standard
-  material model.
+- [Filament](https://google.github.io/filament/Filament.md.html), an in-depth explanation of
+  real-time physically based rendering, the graphics capabilities and implementation of Filament.
+  This document explains the math and reasoning behind most of our decisions. This document is a
+  good introduction to PBR for graphics programmers.
+- [Materials](https://google.github.io/filament//Materials.md.html), the full reference
+  documentation for our material system. This document explains our different material models, how
+  to use the material compiler `matc` and how to write custom materials.
+- [Material Properties](https://google.github.io/filament/Material%20Properties.pdf), a reference
+  sheet for the standard material model.
 
 ## Samples
 
@@ -86,6 +102,9 @@ Many other features have been either prototyped or planned:
 
 - `filament`:                Filament engine and its supporting libraries and tools
   - `android`:               Android libraries and projects
+    - `build`:               Custom Gradle tasks for Android builds
+    - `filament-android`:    Filament library (AAR) for Android
+    - `samples`:             Android-specific Filament samples
   - `art`:                   Source for various artworks (logos, PDF manuals, etc.)
   - `assets`:                3D assets to use with sample applications
   - `build`:                 CMake build scripts
@@ -108,11 +127,14 @@ Many other features have been either prototyped or planned:
   - `samples`:               Sample desktop applications
   - `shaders`:               Shaders used by `filamat` and `matc`
   - `third_party`:           External libraries and assets
+    - `environments`:        Environment maps under CC0 license that can be used with `cmgen`
+    - `textures`:            Textures under CC0 license
   - `tools`:                 Host tools
     - `cmgen`:               Image-based lighting asset generator
     - `filamesh`:            Mesh converter
     - `matc`:                Material compiler
     - `matinfo`              Displays information about materials compiled with `matc`
+    - `mipgen`               Generates a series of miplevels from a source image.
     - `normal-blending`:     Tool to blend normal maps
     - `roughness-prefilter`: Pre-filters a roughness map from a normal map to reduce aliasing 
     - `skygen`:              Physically-based sky environment texture generator
@@ -147,6 +169,8 @@ Make sure the environment variable `ANDROID_HOME` points to the location of your
 
 By default our build system will attempt to compile the Java bindings. To do so, the environment
 variable `JAVA_HOME` should point to the location of your JDK.
+
+When building for WebGL, you'll also need to set `EMSDK`. See [WebAssembly](#webassembly).
 
 ### IDE
 
@@ -234,11 +258,14 @@ $ CC=/usr/bin/clang CXX=/usr/bin/clang++ \
 ```
 
 You can also export the `CC` and `CXX` environment variables to always point to `clang`. Another
-solution is to use `update-alternatives` to change the default compiler:
+solution is to use `update-alternatives` to both change the default compiler, and point to a
+specific version of clang:
 
 ```
-$ update-alternatives --install /usr/bin/cc /usr/bin/clang 100
-$ update-alternatives --install /usr/bin/c++ /usr/bin/clang++ 100
+$ update-alternatives --install /usr/bin/cc cc /usr/bin/clang 100
+$ update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++ 100
+$ update-alternatives --install /usr/bin/clang clang /usr/bin/clang-5.0 100
+$ update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-5.0 100
 ```
 
 Finally, invoke `ninja`:
@@ -291,7 +318,8 @@ Install the following components:
 - [Git 2.16.1 or later](https://github.com/git-for-windows/git/releases/download/v2.16.1.windows.4/PortableGit-2.16.1.4-64-bit.7z.exe)
 - [Cmake 3.11 or later](https://cmake.org/files/v3.11/cmake-3.11.0-rc1-win64-x64.msi)
 
-Open an VS2015 x64 Native Tools terminal (click the start button, type "x64 native tools" and select: "VS2015 x64 Native Tools Command Prompt").
+Open an VS2015 x64 Native Tools terminal (click the start button, type "x64 native tools" and
+select: "VS2015 x64 Native Tools Command Prompt").
 
 Create a working directory:
 ```
@@ -312,12 +340,12 @@ Clang:C:/Program Files/LLVM/msbuild-bin/cl.exe
 
 You are now ready to build:
 ```
-> msbuild  TNT.sln /t:material_sandbox /m /p:configuration=Debug
+> msbuild  TNT.sln /t:material_sandbox /m /p:configuration=Release
 ```
 
 Run it:
 ```
-> samples\material_sandbox.exe ..\..\assets\models\monkey\monkey.obj
+> samples\Release\lightbulb.exe ..\..\assets\models\monkey\monkey.obj
 ```
 
 #### Tips
@@ -325,7 +353,7 @@ Run it:
 - To troubleshoot an issue, use verbose mode via `/v:d` flag.
 - To build a specific project, use `/t:NAME` flag (e.g: `/t:material_sandbox`).
 - To build using more than one core, use parallel build flag: `/m`.
-- To build a specific profile, used `/p:configuration=` (e.g: `/p:configuration=Debug`,
+- To build a specific profile, use `/p:configuration=` (e.g: `/p:configuration=Debug`,
   `/p:configuration=Release`, and `/p:configuration=RelWithDebInfo`).
 - The msBuild project is what is used by Visual Studio behind the scene to build. Building from VS
   or from the command-line is the same thing.
@@ -383,7 +411,7 @@ Filament can be built for the following architectures:
 Note that the main target is the ARM 64-bit target. Our implementation is optimized first and
 foremost for `arm64-v8a`.
 
-#### Easy build
+#### Easy Android build
 
 The easiest way to build Filament for Android is to use `build.sh` and the
 `-p android` flag. For instance to build the release target:
@@ -647,6 +675,31 @@ productFlavors {
 }
 ```
 
+### WebAssembly
+
+As an experimental feature, the core Filament library can be cross-compiled to WebAssembly from
+either macOS or Linux. To get started, install the Emscripten SDK as follows:
+
+```
+cd <your chosen home for the emscripten SDK>
+curl -L https://github.com/juj/emsdk/archive/0d8576c.zip > emsdk.zip
+unzip emsdk.zip
+mv emsdk-* emsdk
+cd emsdk
+./emsdk update
+./emsdk install sdk-1.38.11-64bit
+./emsdk activate sdk-1.38.11-64bit
+export EMSDK=$PWD
+```
+
+The last line in the above snippet is required so that our build script can find the Emscripten SDK.
+After this you can invoke our standard build script with `-p webgl`.
+
+Invoking the [easy build](#easy-build) script with `-p webgl` creates a `public` folder in
+`out/cmake-web-release/samples/web`. This folder can be used as the root of a simple static web
+server. Each sample app has its own handwritten html file, wasm file, and js loader. Additionally
+the public folder contains meshes, textures, and the tiny `filaweb.js` library.
+
 ## Running the samples
 
 The `samples/` directory contains several examples of how to use Filament with SDL2.
@@ -749,14 +802,22 @@ that creates a native window with SDL2 and initializes the Filament engine, rend
 ### Java on Linux, macOS and Windows
 
 After building Filament, you can use `filament-java.jar` and its companion `filament-jni` native
-library to use Filament in desktop Java applications. You can use Filament either with AWT or
-Swing, using respectively a `FilamentCanvas` or a `FilamentPanel`.
+library to use Filament in desktop Java applications.
+
+You must always first initialize Filament by calling `Filament.init()`.
+
+You can use Filament either with AWT or Swing, using respectively a `FilamentCanvas` or a
+`FilamentPanel`.
 
 Following the steps above (how to use Filament from native code), create an `Engine` and a
 `Renderer`, but instead of calling `beginFrame` and `endFrame` on the renderer itself, call
 these methods on `FilamentCanvas` or `FilamentPanel`.
 
 ### Android
+
+See `android/samples` for examples of how to use Filament on Android.
+
+You must always first initialize Filament by calling `Filament.init()`.
 
 Rendering with Filament on Android is similar to rendering from native code (the APIs are largely
 the same across languages). You can render into a `Surface` by passing a `Surface` to the
@@ -776,6 +837,12 @@ $ doxygen docs/doxygen/filament.doxygen
 ```
 
 Finally simply open `docs/html/index.html` in your web browser.
+
+## Assets
+
+To get started you can use the textures and environment maps found respectively in
+`third_party/textures` and `third_party/environments`. These assets are under CC0 license. Please
+refer to their respective `URL.txt` files to know more about the original authors.
 
 ## Dependencies
 

@@ -21,7 +21,6 @@ set(MATERIAL_SRCS
         materials/transparentColor.mat)
 
 if (CMAKE_CROSSCOMPILING)
-    set(IMPORT_EXECUTABLES ${FILAMENT}/${IMPORT_EXECUTABLES_DIR}/ImportExecutables-${CMAKE_BUILD_TYPE}.cmake)
     include(${IMPORT_EXECUTABLES})
 endif()
 
@@ -69,7 +68,8 @@ set(APP_SRCS
         app/FilamentApp.cpp
         app/IBL.cpp
         app/Image.cpp
-        app/IcoSphere.cpp)
+        app/IcoSphere.cpp
+        app/Sphere.cpp)
 
 if (APPLE)
     list(APPEND APP_SRCS app/NativeWindowHelperCocoa.mm)
@@ -177,7 +177,7 @@ endif()
 # Build Vulkan Executables
 # ==================================================================================================
 
-if (LINUX OR APPLE)
+if (FILAMENT_SUPPORTS_VULKAN)
     add_assimp_demo(vk_strobecolor)
     add_assimp_demo(vk_hellotriangle)
     add_assimp_demo(vk_depthtesting)
@@ -191,6 +191,15 @@ endif()
 
 # ==================================================================================================
 # Copy Assets
+#
+# This creates a structure like:
+#
+#    /lightbulb (etc)  sample app executable
+#    /assets/fonts     copied from REPO/assets
+#    /assets/models    copied from REPO/assets
+#    /textures         copied from REPO/third_party
+#    /envs             copied from REPO/samples/envs
+#
 # ==================================================================================================
 
 file(COPY ../third_party/textures DESTINATION ${PROJECT_BINARY_DIR})
@@ -202,3 +211,7 @@ file(COPY ../assets DESTINATION ${PROJECT_BINARY_DIR}
         PATTERN "environments" EXCLUDE)
 add_custom_target(assets ALL DEPENDS assets)
 add_dependencies(filament assets)
+
+file(COPY ../samples/envs DESTINATION ${PROJECT_BINARY_DIR})
+add_custom_target(envs ALL DEPENDS envs)
+add_dependencies(filament envs)
