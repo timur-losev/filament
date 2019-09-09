@@ -18,7 +18,7 @@
 #include <jni.h>
 
 #include <filament/RenderableManager.h>
-#include "NioUtils.h"
+#include "common/NioUtils.h"
 
 using namespace filament;
 using namespace utils;
@@ -182,6 +182,12 @@ Java_com_google_android_filament_RenderableManager_nBuilderSkinningBones(JNIEnv*
     return 0;
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_google_android_filament_RenderableManager_nBuilderMorphing(JNIEnv*, jclass,
+        jlong nativeBuilder, jboolean enabled) {
+    RenderableManager::Builder *builder = (RenderableManager::Builder *) nativeBuilder;
+    builder->morphing(enabled);
+}
 
 
 extern "C" JNIEXPORT jint JNICALL
@@ -197,7 +203,7 @@ Java_com_google_android_filament_RenderableManager_nSetBonesAsMatrices(JNIEnv* e
         return -1;
     }
     rm->setBones((RenderableManager::Instance)i,
-            static_cast<math::mat4f const *>(data), (size_t)boneCount, (size_t)offset);
+            static_cast<filament::math::mat4f const *>(data), (size_t)boneCount, (size_t)offset);
     return 0;
 }
 
@@ -216,6 +222,16 @@ Java_com_google_android_filament_RenderableManager_nSetBonesAsQuaternions(JNIEnv
     rm->setBones((RenderableManager::Instance)i,
             static_cast<RenderableManager::Bone const *>(data), (size_t)boneCount, (size_t)offset);
     return 0;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_google_android_filament_RenderableManager_nSetMorphWeights(JNIEnv* env, jclass,
+        jlong nativeRenderableManager, jint instance, jfloatArray weights) {
+    RenderableManager *rm = (RenderableManager *) nativeRenderableManager;
+    jfloat* vec = env->GetFloatArrayElements(weights, NULL);
+    math::float4 floatvec(vec[0], vec[1], vec[2], vec[3]);
+    env->ReleaseFloatArrayElements(weights, vec, JNI_ABORT);
+    rm->setMorphWeights((RenderableManager::Instance)instance, floatvec);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -277,8 +293,8 @@ Java_com_google_android_filament_RenderableManager_nGetAxisAlignedBoundingBox(JN
     jfloat *center = env->GetFloatArrayElements(center_, NULL);
     jfloat *halfExtent = env->GetFloatArrayElements(halfExtent_, NULL);
     Box const &aabb = rm->getAxisAlignedBoundingBox((RenderableManager::Instance) i);
-    *reinterpret_cast<math::float3 *>(center) = aabb.center;
-    *reinterpret_cast<math::float3 *>(halfExtent) = aabb.halfExtent;
+    *reinterpret_cast<filament::math::float3 *>(center) = aabb.center;
+    *reinterpret_cast<filament::math::float3 *>(halfExtent) = aabb.halfExtent;
     env->ReleaseFloatArrayElements(center_, center, 0);
     env->ReleaseFloatArrayElements(halfExtent_, halfExtent, 0);
 }
@@ -297,6 +313,21 @@ Java_com_google_android_filament_RenderableManager_nSetMaterialInstanceAt(JNIEnv
     const MaterialInstance *materialInstance = (const MaterialInstance *) nativeMaterialInstance;
     rm->setMaterialInstanceAt((RenderableManager::Instance) i, (size_t) primitiveIndex,
             materialInstance);
+}
+
+extern "C" JNIEXPORT long JNICALL
+Java_com_google_android_filament_RenderableManager_nGetMaterialInstanceAt(JNIEnv*, jclass,
+        jlong nativeRenderableManager, jint i, jint primitiveIndex) {
+    RenderableManager *rm = (RenderableManager *) nativeRenderableManager;
+    return (long) rm->getMaterialInstanceAt((RenderableManager::Instance) i, (size_t) primitiveIndex);
+}
+
+extern "C" JNIEXPORT long JNICALL
+Java_com_google_android_filament_RenderableManager_nGetMaterialAt(JNIEnv*, jclass,
+        jlong nativeRenderableManager, jint i, jint primitiveIndex) {
+    RenderableManager *rm = (RenderableManager *) nativeRenderableManager;
+    MaterialInstance *mi = rm->getMaterialInstanceAt((RenderableManager::Instance) i, (size_t) primitiveIndex);
+    return (long) mi->getMaterial();
 }
 
 extern "C" JNIEXPORT void JNICALL

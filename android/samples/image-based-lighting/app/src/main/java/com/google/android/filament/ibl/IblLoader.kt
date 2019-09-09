@@ -30,14 +30,6 @@ import java.nio.ByteBuffer
 
 import kotlin.math.log2
 
-private fun peekSize(assets: AssetManager, name: String): Pair<Int, Int> {
-    val input = assets.open(name)
-    val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeStream(input, null, opts)
-    input.close()
-    return opts.outWidth to opts.outHeight
-}
-
 data class Ibl(val indirectLight: IndirectLight,
                val indirectLightTexture: Texture,
                val skybox: Skybox,
@@ -56,20 +48,28 @@ fun destroyIbl(engine: Engine, ibl: Ibl) {
     engine.destroyTexture(ibl.indirectLightTexture)
 }
 
+private fun peekSize(assets: AssetManager, name: String): Pair<Int, Int> {
+    assets.open(name).use { input ->
+        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeStream(input, null, opts)
+        return opts.outWidth to opts.outHeight
+    }
+}
+
 private fun loadIndirectLight(
         assets: AssetManager,
         name: String,
         engine: Engine): Pair<IndirectLight, Texture> {
-    val (w, h) = peekSize(assets, "$name/nx.rgbm")
+    val (w, h) = peekSize(assets, "$name/m0_nx.rgb32f")
     val texture = Texture.Builder()
             .width(w)
             .height(h)
             .levels(log2(w.toFloat()).toInt() + 1)
-            .format(Texture.InternalFormat.RGBM)
+            .format(Texture.InternalFormat.R11F_G11F_B10F)
             .sampler(Texture.Sampler.SAMPLER_CUBEMAP)
             .build(engine)
 
-    (0 until texture.levels).forEach {
+    repeat(texture.levels) {
         loadCubemap(texture, assets, name, engine, "m${it}_", it)
     }
 
@@ -87,7 +87,7 @@ private fun loadSphericalHarmonics(assets: AssetManager, name: String): FloatArr
     // 3 bands = 9 RGB coefficients, so 9 * 3 floats
     val sphericalHarmonics = FloatArray(9 * 3)
     BufferedReader(InputStreamReader(assets.open("$name/sh.txt"))).use { input ->
-        (0 until 9).forEach { i ->
+        repeat(9) { i ->
             val line = input.readLine()
             re.find(line)?.let {
                 sphericalHarmonics[i * 3] = it.groups[1]?.value?.toFloat() ?: 0.0f
@@ -100,12 +100,12 @@ private fun loadSphericalHarmonics(assets: AssetManager, name: String): FloatArr
 }
 
 private fun loadSkybox(assets: AssetManager, name: String, engine: Engine): Pair<Skybox, Texture> {
-    val (w, h) = peekSize(assets, "$name/nx.rgbm")
+    val (w, h) = peekSize(assets, "$name/nx.rgb32f")
     val texture = Texture.Builder()
             .width(w)
             .height(h)
             .levels(1)
-            .format(Texture.InternalFormat.RGBM)
+            .format(Texture.InternalFormat.R11F_G11F_B10F)
             .sampler(Texture.Sampler.SAMPLER_CUBEMAP)
             .build(engine)
 
@@ -120,19 +120,19 @@ private fun loadCubemap(texture: Texture,
                         engine: Engine,
                         prefix: String = "",
                         level: Int = 0) {
-    // This is important, in the RGBM format the alpha channel does not encode
-    // opacity but a scale factor (to represent HDR data). We must tell Android
-    // to not premultiply the RGB channels by the alpha channel
+    // This is important, the alpha channel does not encode opacity but some
+    // of the bits of an R11G11B10F image to represent HDR data. We must tell
+    // Android to not premultiply the RGB channels by the alpha channel
     val opts = BitmapFactory.Options().apply { inPremultiplied = false }
 
-    // RGBM is always 4 bytes per pixel
+    // R11G11B10F is always 4 bytes per pixel
     val faceSize = texture.getWidth(level) * texture.getHeight(level) * 4
     val offsets = IntArray(6) { it * faceSize }
     // Allocate enough memory for all the cubemap faces
     val storage = ByteBuffer.allocateDirect(faceSize * 6)
 
-    arrayOf("px", "nx", "py", "ny", "pz", "nz").forEachIndexed { i, suffix ->
-        assets.open("$name/$prefix$suffix.rgbm").use {
+    arrayOf("px", "nx", "py", "ny", "pz", "nz").forEach { suffix ->
+        assets.open("$name/$prefix$suffix.rgb32f").use {
             val bitmap = BitmapFactory.decodeStream(it, null, opts)
             bitmap?.copyPixelsToBuffer(storage)
         }
@@ -141,6 +141,7 @@ private fun loadCubemap(texture: Texture,
     // Rewind the texture buffer
     storage.flip()
 
-    val buffer = Texture.PixelBufferDescriptor(storage, Texture.Format.RGBM, Texture.Type.UBYTE)
+    val buffer = Texture.PixelBufferDescriptor(storage,
+            Texture.Format.RGB, Texture.Type.UINT_10F_11F_11F_REV)
     texture.setImage(engine, level, buffer, offsets)
 }

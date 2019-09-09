@@ -25,14 +25,88 @@
 #include <math/mat3.h>
 #include <math/quat.h>
 
-using namespace math;
+using namespace filament::math;
 
 class MatTest : public testing::Test {
 protected:
 };
 
+TEST_F(MatTest, ConstexprMat2) {
+    constexpr float a = M_PI;
+    constexpr mat2f M;
+    constexpr mat2f M0(a);
+    constexpr mat2f M1(float2{a, a});
+    constexpr mat2f M2(1,2,3,4);
+    constexpr mat2f M3(M2);
+    constexpr mat2f M4(float2{1,2}, float2{3,4});
+    constexpr float2 f0 = M0 * float2{1,2};
+    constexpr float2 f1 = float2{1,2} * M1;
+    constexpr mat2f M5 = M2 * 2;
+    constexpr mat2f M7 = 2 * M2;
+    constexpr float2 f3 = diag(M0);
+    constexpr mat2f M8 = transpose(M0);
+    constexpr mat2f M9 = inverse(M0);
+    constexpr mat2f M11 = details::matrix::cof(M0);
+    constexpr mat2f M10 = M8 * M9;
+    constexpr float s0 = trace(M0);
+}
+
+TEST_F(MatTest, ConstexprMat3) {
+    constexpr float a = M_PI;
+    constexpr mat3f M;
+    constexpr mat3f M0(a);
+    constexpr mat3f M1(float3{a, a, a});
+    constexpr mat3f M2(1,2,3,4,5,6,7,8,9);
+    constexpr mat3f M3(M2);
+    constexpr mat3f M4(float3{1,2,3}, float3{4,5,6}, float3{7,8,9});
+    constexpr float3 f0 = M0 * float3{1,2,3};
+    constexpr float3 f1 = float3{1,2,3} * M1;
+    constexpr mat3f M5 = M2 * 2;
+    constexpr mat3f M7 = 2 * M2;
+    constexpr float3 f3 = diag(M0);
+    constexpr mat3f M8 = transpose(M0);
+    constexpr mat3f M9 = inverse(M0);
+    constexpr mat3f M12 = details::matrix::cof(M0);
+    constexpr mat3f M10 = M8 * M9;
+    constexpr float s0 = trace(M0);
+    constexpr quatf q;
+    constexpr mat3f M11{q};
+}
+
+TEST_F(MatTest, ConstexprMat4) {
+    constexpr float a = M_PI;
+    constexpr mat4f M;
+    constexpr mat4f M0(a);
+    constexpr mat4f M1(float4{a, a, a, a});
+    constexpr mat4f M2(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16);
+    constexpr mat4f M3(M2);
+    constexpr mat4f M4(float4{1,2,3,4}, float4{5,6,7,8}, float4{9,10,11,12}, float4{13,14,15,16});
+    constexpr float4 f0 = M0 * float4{1,2,3,4};
+    constexpr float4 f1 = float4{1,2,3,4} * M1;
+    constexpr mat4f M5 = M2 * 2;
+    constexpr mat4f M7 = 2 * M2;
+    constexpr float4 f3 = diag(M0);
+    constexpr mat4f M8 = transpose(M0);
+    constexpr mat4f M9 = inverse(M0);
+    constexpr mat4f M16 = details::matrix::cof(M0);
+    constexpr mat4f M10 = M8 * M9;
+    constexpr float s0 = trace(M0);
+    constexpr quatf q;
+    constexpr mat4f M11{q};
+    constexpr mat4f M13{mat3f{}};
+    constexpr mat4f M14{mat3f{}, float3{}};
+    constexpr mat4f M15{mat3f{}, float4{}};
+    constexpr mat4f O = mat4f::ortho(0, 1, 0, 1, -1, 1);
+    constexpr mat4f F = mat4f::frustum(0, 1, 0, 1, -1, 1);
+    constexpr float4 f4 = mat4f::project(F, float4{1,2,3,1});
+    constexpr float3 f5 = mat4f::project(F, float3{1,2,3});
+    constexpr mat3f U = M11.upperLeft();
+    constexpr mat4f T = mat4f::translation(f5);
+    constexpr mat4f S = mat4f::scaling(f5);
+    constexpr mat4f V = mat4f::scaling(s0);
+}
+
 TEST_F(MatTest, Basics) {
-    mat4 m0;
     EXPECT_EQ(sizeof(mat4), sizeof(double)*16);
 }
 
@@ -72,8 +146,6 @@ TEST_F(MatTest, Constructors) {
     EXPECT_EQ(m1, m2);
     EXPECT_EQ(m2, m3);
     EXPECT_EQ(m3, m1);
-
-    mat4 m4(double4(1), double4(2), double4(3), double4(4));
 }
 
 TEST_F(MatTest, ArithmeticOps) {
@@ -169,7 +241,6 @@ protected:
 };
 
 TEST_F(Mat3Test, Basics) {
-    mat3 m0;
     EXPECT_EQ(sizeof(mat3), sizeof(double)*9);
 }
 
@@ -276,7 +347,6 @@ protected:
 };
 
 TEST_F(Mat2Test, Basics) {
-    mat2 m0;
     EXPECT_EQ(sizeof(mat2), sizeof(double)*4);
 }
 
@@ -373,16 +443,19 @@ TYPED_TEST_CASE(MatTestT, TestMatrixValueTypes);
     typedef decltype(MATRIX) MatrixType;                                    \
     MatrixType inv1 = inverse(MATRIX);                                      \
     MatrixType ident1 = MATRIX * inv1;                                      \
+    MatrixType inv2 = transpose(cof(MATRIX))/det(MATRIX);                   \
+    MatrixType ident2 = MATRIX * inv2;                                      \
     static const MatrixType IDENTITY;                                       \
     for (int row = 0; row < MatrixType::ROW_SIZE; ++row) {                  \
         for (int col = 0; col < MatrixType::COL_SIZE; ++col) {              \
             EXPECT_NEAR(ident1[row][col], IDENTITY[row][col], EPSILON);     \
+            EXPECT_NEAR(ident2[row][col], IDENTITY[row][col], EPSILON);     \
         }                                                                   \
     }                                                                       \
 }
 
 TYPED_TEST(MatTestT, Inverse4) {
-    typedef ::math::details::TMat44<TypeParam> M44T;
+    typedef filament::math::details::TMat44<TypeParam> M44T;
 
     M44T m1(1,  0,  0,  0,
             0,  1,  0,  0,
@@ -420,7 +493,7 @@ TYPED_TEST(MatTestT, Inverse4) {
 
 //------------------------------------------------------------------------------
 TYPED_TEST(MatTestT, Inverse3) {
-    typedef ::math::details::TMat33<TypeParam> M33T;
+    typedef filament::math::details::TMat33<TypeParam> M33T;
 
     M33T m1(1,  0,  0,
             0,  1,  0,
@@ -453,7 +526,7 @@ TYPED_TEST(MatTestT, Inverse3) {
 
 //------------------------------------------------------------------------------
 TYPED_TEST(MatTestT, Inverse2) {
-    typedef ::math::details::TMat22<TypeParam> M22T;
+    typedef filament::math::details::TMat22<TypeParam> M22T;
 
     M22T m1(1,  0,
             0,  1);
@@ -514,13 +587,13 @@ do {                                                            \
 //------------------------------------------------------------------------------
 // Test some translation stuff.
 TYPED_TEST(MatTestT, Translation4) {
-    typedef ::math::details::TMat44<TypeParam> M44T;
-    typedef ::math::details::TVec4<TypeParam> V4T;
-    typedef ::math::details::TVec3<TypeParam> V3T;
+    typedef filament::math::details::TMat44<TypeParam> M44T;
+    typedef filament::math::details::TVec4<TypeParam> V4T;
+    typedef filament::math::details::TVec3<TypeParam> V3T;
 
     V3T translateBy(-7.3, 1.1, 14.4);
     V3T translation(translateBy[0], translateBy[1], translateBy[2]);
-    M44T translation_matrix = M44T::translate(translation);
+    M44T translation_matrix = M44T::translation(translation);
 
     V4T p1(9.9, 3.1, 41.1, 1.0);
     V4T p2(-18.0, 0.0, 1.77, 1.0);
@@ -532,20 +605,20 @@ TYPED_TEST(MatTestT, Translation4) {
     EXPECT_VEC_EQ((translation_matrix * p3).xyz, translateBy + p3.xyz);
     EXPECT_VEC_EQ((translation_matrix * p4).xyz, translateBy + p4.xyz);
 
-    translation_matrix = M44T::translate(2.7);
+    translation_matrix = M44T::translation(V3T{2.7});
     EXPECT_VEC_EQ((translation_matrix * p1).xyz, V3T{2.7} + p1.xyz);
 }
 
 //------------------------------------------------------------------------------
 // Test some scale stuff.
 TYPED_TEST(MatTestT, Scale4) {
-    typedef ::math::details::TMat44<TypeParam> M44T;
-    typedef ::math::details::TVec4<TypeParam> V4T;
-    typedef ::math::details::TVec3<TypeParam> V3T;
+    typedef filament::math::details::TMat44<TypeParam> M44T;
+    typedef filament::math::details::TVec4<TypeParam> V4T;
+    typedef filament::math::details::TVec3<TypeParam> V3T;
 
     V3T scaleBy(2.0, 3.0, 4.0);
     V3T scale(scaleBy[0], scaleBy[1], scaleBy[2]);
-    M44T scale_matrix = M44T::scale(scale);
+    M44T scale_matrix = M44T::scaling(scale);
 
     V4T p1(9.9, 3.1, 41.1, 1.0);
     V4T p2(-18.0, 0.0, 1.77, 1.0);
@@ -557,7 +630,7 @@ TYPED_TEST(MatTestT, Scale4) {
     EXPECT_VEC_EQ((scale_matrix * p3).xyz, scaleBy * p3.xyz);
     EXPECT_VEC_EQ((scale_matrix * p4).xyz, scaleBy * p4.xyz);
 
-    scale_matrix = M44T::scale(3.0);
+    scale_matrix = M44T::scaling(3.0);
     EXPECT_VEC_EQ((scale_matrix * p1).xyz, V3T{3.0} * p1.xyz);
 }
 
@@ -583,10 +656,10 @@ static void verifyOrthonormal(const MATRIX& A) {
 //------------------------------------------------------------------------------
 // Test euler code.
 TYPED_TEST(MatTestT, EulerZYX_44) {
-    typedef ::math::details::TMat44<TypeParam> M44T;
+    typedef filament::math::details::TMat44<TypeParam> M44T;
 
-    std::default_random_engine generator(82828);
-    std::uniform_real_distribution<double> distribution(-6.0 * 2.0*M_PI, 6.0 * 2.0*M_PI);
+    std::default_random_engine generator(82828); // NOLINT
+    std::uniform_real_distribution<TypeParam> distribution(-6.0 * 2.0*M_PI, 6.0 * 2.0*M_PI);
     auto rand_gen = std::bind(distribution, generator);
 
     for (size_t i = 0; i < 100; ++i) {
@@ -602,10 +675,10 @@ TYPED_TEST(MatTestT, EulerZYX_44) {
 // Test euler code.
 TYPED_TEST(MatTestT, EulerZYX_33) {
 
-    typedef ::math::details::TMat33<TypeParam> M33T;
+    typedef filament::math::details::TMat33<TypeParam> M33T;
 
-    std::default_random_engine generator(112233);
-    std::uniform_real_distribution<double> distribution(-6.0 * 2.0*M_PI, 6.0 * 2.0*M_PI);
+    std::default_random_engine generator(112233); // NOLINT
+    std::uniform_real_distribution<TypeParam> distribution(-6.0 * 2.0*M_PI, 6.0 * 2.0*M_PI);
     auto rand_gen = std::bind(distribution, generator);
 
     for (size_t i = 0; i < 100; ++i) {
@@ -621,18 +694,17 @@ TYPED_TEST(MatTestT, EulerZYX_33) {
 // Test to quaternion with post translation.
 TYPED_TEST(MatTestT, ToQuaternionPostTranslation) {
 
-    typedef ::math::details::TMat44<TypeParam> M44T;
-    typedef ::math::details::TVec4<TypeParam> V4T;
-    typedef ::math::details::TVec3<TypeParam> V3T;
-    typedef ::math::details::TQuaternion<TypeParam> QuatT;
+    typedef filament::math::details::TMat44<TypeParam> M44T;
+    typedef filament::math::details::TVec3<TypeParam> V3T;
+    typedef filament::math::details::TQuaternion<TypeParam> QuatT;
 
-    std::default_random_engine generator(112233);
-    std::uniform_real_distribution<double> distribution(-6.0 * 2.0*M_PI, 6.0 * 2.0*M_PI);
+    std::default_random_engine generator(112233); // NOLINT
+    std::uniform_real_distribution<TypeParam> distribution(-6.0 * 2.0*M_PI, 6.0 * 2.0*M_PI);
     auto rand_gen = std::bind(distribution, generator);
 
     for (size_t i = 0; i < 100; ++i) {
         M44T r = M44T::eulerZYX(rand_gen(), rand_gen(), rand_gen());
-        M44T t = M44T::translate(V3T(rand_gen(), rand_gen(), rand_gen()));
+        M44T t = M44T::translation(V3T(rand_gen(), rand_gen(), rand_gen()));
         QuatT qr = r.toQuaternion();
         M44T tr = t * r;
         QuatT qtr = tr.toQuaternion();
@@ -644,7 +716,7 @@ TYPED_TEST(MatTestT, ToQuaternionPostTranslation) {
     }
 
     M44T r = M44T::eulerZYX(1, 2, 3);
-    M44T t = M44T::translate(V3T(20, -15, 2));
+    M44T t = M44T::translation(V3T(20, -15, 2));
     QuatT qr = r.toQuaternion();
     M44T tr = t * r;
     QuatT qtr = tr.toQuaternion();
@@ -661,12 +733,12 @@ TYPED_TEST(MatTestT, ToQuaternionPointTransformation33) {
     static constexpr TypeParam value_eps =
             TypeParam(1000) * std::numeric_limits<TypeParam>::epsilon();
 
-    typedef ::math::details::TMat33<TypeParam> M33T;
-    typedef ::math::details::TVec3<TypeParam> V3T;
-    typedef ::math::details::TQuaternion<TypeParam> QuatT;
+    typedef filament::math::details::TMat33<TypeParam> M33T;
+    typedef filament::math::details::TVec3<TypeParam> V3T;
+    typedef filament::math::details::TQuaternion<TypeParam> QuatT;
 
-    std::default_random_engine generator(112233);
-    std::uniform_real_distribution<double> distribution(-100.0, 100.0);
+    std::default_random_engine generator(112233); // NOLINT
+    std::uniform_real_distribution<TypeParam> distribution(-100.0, 100.0);
     auto rand_gen = std::bind(distribution, generator);
 
     for (size_t i = 0; i < 100; ++i) {
@@ -689,13 +761,13 @@ TYPED_TEST(MatTestT, ToQuaternionPointTransformation44) {
     static constexpr TypeParam value_eps =
             TypeParam(1000) * std::numeric_limits<TypeParam>::epsilon();
 
-    typedef ::math::details::TMat44<TypeParam> M44T;
-    typedef ::math::details::TVec4<TypeParam> V4T;
-    typedef ::math::details::TVec3<TypeParam> V3T;
-    typedef ::math::details::TQuaternion<TypeParam> QuatT;
+    typedef filament::math::details::TMat44<TypeParam> M44T;
+    typedef filament::math::details::TVec4<TypeParam> V4T;
+    typedef filament::math::details::TVec3<TypeParam> V3T;
+    typedef filament::math::details::TQuaternion<TypeParam> QuatT;
 
-    std::default_random_engine generator(992626);
-    std::uniform_real_distribution<double> distribution(-100.0, 100.0);
+    std::default_random_engine generator(992626); // NOLINT
+    std::uniform_real_distribution<TypeParam> distribution(-100.0, 100.0);
     auto rand_gen = std::bind(distribution, generator);
 
     for (size_t i = 0; i < 100; ++i) {
@@ -714,5 +786,28 @@ TYPED_TEST(MatTestT, ToQuaternionPointTransformation44) {
         ASSERT_NEAR(pr.z, pq.z, value_eps);
     }
 }
+
+
+TYPED_TEST(MatTestT, cofactor) {
+    static constexpr TypeParam value_eps =
+            TypeParam(1000) * std::numeric_limits<TypeParam>::epsilon();
+
+    typedef filament::math::details::TMat33<TypeParam> M33T;
+
+    std::default_random_engine generator(992626); // NOLINT
+    std::uniform_real_distribution<TypeParam> distribution(-100.0, 100.0);
+    auto rand_gen = std::bind(distribution, generator);
+
+    for (size_t i = 0; i < 100; ++i) {
+        M33T r = M33T::eulerZYX(rand_gen(), rand_gen(), rand_gen());
+        M33T c0 = details::matrix::cofactor(r);
+        M33T c1 = details::matrix::fastCofactor3(r);
+        EXPECT_VEC_EQ(c0[0], c1[0]);
+        EXPECT_VEC_EQ(c0[1], c1[1]);
+        EXPECT_VEC_EQ(c0[2], c1[2]);
+    }
+}
+
+
 
 #undef TEST_MATRIX_INVERSE

@@ -59,8 +59,9 @@ FIndexBuffer::FIndexBuffer(FEngine& engine, const IndexBuffer::Builder& builder)
         : mIndexCount(builder->mIndexCount) {
     FEngine::DriverApi& driver = engine.getDriverApi();
     mHandle = driver.createIndexBuffer(
-            (driver::ElementType)builder->mIndexType,
-            uint32_t(builder->mIndexCount));
+            (backend::ElementType)builder->mIndexType,
+            uint32_t(builder->mIndexCount),
+            backend::BufferUsage::STATIC);
 }
 
 void FIndexBuffer::terminate(FEngine& engine) {
@@ -68,14 +69,8 @@ void FIndexBuffer::terminate(FEngine& engine) {
     driver.destroyIndexBuffer(mHandle);
 }
 
-void FIndexBuffer::setBuffer(FEngine& engine,
-        BufferDescriptor&& buffer, uint32_t byteOffset, uint32_t byteSize) {
-
-    if (byteSize == 0) {
-        byteSize = uint32_t(buffer.size);
-    }
-
-    engine.getDriverApi().loadIndexBuffer(mHandle, std::move(buffer), byteOffset, byteSize);
+void FIndexBuffer::setBuffer(FEngine& engine, BufferDescriptor&& buffer, uint32_t byteOffset) {
+    engine.getDriverApi().updateIndexBuffer(mHandle, std::move(buffer), byteOffset);
 }
 
 } // namespace details
@@ -87,8 +82,8 @@ void FIndexBuffer::setBuffer(FEngine& engine,
 using namespace details;
 
 void IndexBuffer::setBuffer(Engine& engine,
-        IndexBuffer::BufferDescriptor&& buffer, uint32_t byteOffset, uint32_t byteSize) {
-    upcast(this)->setBuffer(upcast(engine), std::move(buffer), byteOffset, byteSize);
+        IndexBuffer::BufferDescriptor&& buffer, uint32_t byteOffset) {
+    upcast(this)->setBuffer(upcast(engine), std::move(buffer), byteOffset);
 }
 
 size_t IndexBuffer::getIndexCount() const noexcept {

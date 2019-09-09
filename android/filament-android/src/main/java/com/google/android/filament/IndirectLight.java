@@ -18,12 +18,16 @@ package com.google.android.filament;
 
 import android.support.annotation.IntRange;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.annotation.Size;
+
+import com.google.android.filament.proguard.UsedByReflection;
 
 public class IndirectLight {
     long mNativeObject;
 
-    private IndirectLight(long indirectLight) {
+    @UsedByReflection("KtxLoader.java")
+    IndirectLight(long indirectLight) {
         mNativeObject = indirectLight;
     }
 
@@ -62,6 +66,24 @@ public class IndirectLight {
         }
 
         @NonNull
+        public Builder radiance(@IntRange(from=1, to=3) int bands, @NonNull float[] sh) {
+            switch (bands) {
+                case 1: if (sh.length < 3)
+                        throw new ArrayIndexOutOfBoundsException(
+                            "1 band SH, array must be at least 1 x float3"); else break;
+                case 2: if (sh.length < 4 * 3)
+                        throw new ArrayIndexOutOfBoundsException(
+                            "2 bands SH, array must be at least 4 x float3"); else break;
+                case 3: if (sh.length < 9 * 3)
+                        throw new ArrayIndexOutOfBoundsException(
+                            "3 bands SH, array must be at least 9 x float3"); else break;
+                default: throw new IllegalArgumentException("bands must be 1, 2 or 3");
+            }
+            nRadiance(mNativeBuilder, bands, sh);
+            return this;
+        }
+
+        @NonNull
         public Builder irradiance(@NonNull Texture cubemap) {
             nIrradianceAsTexture(mNativeBuilder, cubemap.getNativeObject());
             return this;
@@ -74,7 +96,7 @@ public class IndirectLight {
         }
 
         @NonNull
-        public Builder rotation(@NonNull @Size(min = 9) float rotation[]) {
+        public Builder rotation(@NonNull @Size(min = 9) float[] rotation) {
             nRotation(mNativeBuilder,
                     rotation[0], rotation[1], rotation[2],
                     rotation[3], rotation[4], rotation[5],
@@ -114,14 +136,36 @@ public class IndirectLight {
         return nGetIntensity(getNativeObject());
     }
 
-    public void setRotation(@NonNull @Size(min = 9) float rotation[]) {
+    public void setRotation(@NonNull @Size(min = 9) float[] rotation) {
+        Asserts.assertMat3fIn(rotation);
         nSetRotation(getNativeObject(),
                 rotation[0], rotation[1], rotation[2],
                 rotation[3], rotation[4], rotation[5],
                 rotation[6], rotation[7], rotation[8]);
     }
 
-    long getNativeObject() {
+    @NonNull @Size(min = 9)
+    public float[] getRotation(@Nullable @Size(min = 9) float[] rotation) {
+        rotation = Asserts.assertMat3f(rotation);
+        nGetRotation(getNativeObject(), rotation);
+        return rotation;
+    }
+
+    @NonNull @Size(min = 3)
+    public float[] getDirectionEstimate(@Nullable @Size(min = 3) float[] direction) {
+        direction = Asserts.assertFloat3(direction);
+        nGetDirectionEstimate(getNativeObject(), direction);
+        return direction;
+    }
+
+    @NonNull @Size(min = 4)
+    public float[] getColorEstimate(@Nullable @Size(min = 4) float[] colorIntensity, float x, float y, float z) {
+        colorIntensity = Asserts.assertFloat4(colorIntensity);
+        nGetColorEstimate(getNativeObject(), colorIntensity, x, y, z);
+        return colorIntensity;
+    }
+
+    public long getNativeObject() {
         if (mNativeObject == 0) {
             throw new IllegalStateException("Calling method on destroyed IndirectLight");
         }
@@ -138,6 +182,7 @@ public class IndirectLight {
     private static native long nBuilderBuild(long nativeBuilder, long nativeEngine);
     private static native void nBuilderReflections(long nativeBuilder, long nativeTexture);
     private static native void nIrradiance(long nativeBuilder, int bands, float[] sh);
+    private static native void nRadiance(long nativeBuilder, int bands, float[] sh);
     private static native void nIrradianceAsTexture(long nativeBuilder, long nativeTexture);
     private static native void nIntensity(long nativeBuilder, float envIntensity);
     private static native void nRotation(long nativeBuilder, float v0, float v1, float v2, float v3, float v4, float v5, float v6, float v7, float v8) ;
@@ -145,5 +190,7 @@ public class IndirectLight {
     private static native void nSetIntensity(long nativeIndirectLight, float intensity);
     private static native float nGetIntensity(long nativeIndirectLight);
     private static native void nSetRotation(long nativeIndirectLight, float v0, float v1, float v2, float v3, float v4, float v5, float v6, float v7, float v8);
-
+    private static native void nGetRotation(long nativeIndirectLight, float[] outRotation);
+    private static native void nGetDirectionEstimate(long nativeIndirectLight, float[] outDirection);
+    private static native void nGetColorEstimate(long nativeIndirectLight, float[] outColor, float x, float y, float z);
 }

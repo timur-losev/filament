@@ -16,29 +16,55 @@
 
 package com.google.android.filament;
 
-import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 
 public class Scene {
     private long mNativeObject;
+    private @Nullable Skybox mSkybox;
+    private @Nullable IndirectLight mIndirectLight;
 
     Scene(long nativeScene) {
         mNativeObject = nativeScene;
     }
 
-    public void setSkybox(@NonNull Skybox skybox) {
-        nSetSkybox(getNativeObject(), skybox.getNativeObject());
+    @Nullable
+    public Skybox getSkybox() {
+        return mSkybox;
     }
 
-    public void setIndirectLight(@NonNull IndirectLight ibl) {
-        nSetIndirectLight(getNativeObject(), ibl.getNativeObject());
+    public void setSkybox(@Nullable Skybox skybox) {
+        mSkybox = skybox;
+        nSetSkybox(getNativeObject(), mSkybox != null ? mSkybox.getNativeObject() : 0);
+    }
+
+    @Nullable
+    public IndirectLight getIndirectLight() {
+        return mIndirectLight;
+    }
+
+    public void setIndirectLight(@Nullable IndirectLight ibl) {
+        mIndirectLight = ibl;
+        nSetIndirectLight(getNativeObject(),
+                mIndirectLight != null ? mIndirectLight.getNativeObject() : 0);
     }
 
     public void addEntity(@Entity int entity) {
         nAddEntity(getNativeObject(), entity);
     }
 
-    public void remove(@Entity int entity) {
+    public void addEntities(@Entity int[] entities) {
+        nAddEntities(getNativeObject(), entities);
+    }
+
+    public void removeEntity(@Entity int entity) {
         nRemove(getNativeObject(), entity);
+    }
+
+    /**
+     * @deprecated See {@link #removeEntity(int)}
+     */
+    public void remove(@Entity int entity) {
+        removeEntity(entity);
     }
 
     public int getRenderableCount() {
@@ -49,7 +75,7 @@ public class Scene {
         return nGetLightCount(getNativeObject());
     }
 
-    long getNativeObject() {
+    public long getNativeObject() {
         if (mNativeObject == 0) {
             throw new IllegalStateException("Calling method on destroyed Scene");
         }
@@ -63,6 +89,7 @@ public class Scene {
     private static native void nSetSkybox(long nativeScene, long nativeSkybox);
     private static native void nSetIndirectLight(long nativeScene, long nativeIndirectLight);
     private static native void nAddEntity(long nativeScene, int entity);
+    private static native void nAddEntities(long nativeScene, int[] entities);
     private static native void nRemove(long nativeScene, int entity);
     private static native int nGetRenderableCount(long nativeScene);
     private static native int nGetLightCount(long nativeScene);

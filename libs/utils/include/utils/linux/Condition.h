@@ -17,12 +17,17 @@
 #ifndef UTILS_LINUX_CONDITION_H
 #define UTILS_LINUX_CONDITION_H
 
+#include <atomic>
+#include <chrono>
+#include <condition_variable> // for cv_status
 #include <limits>
-#include <mutex>
+#include <mutex> // for unique_lock
+
 #include <utils/linux/Mutex.h>
 
-namespace utils {
+#include <time.h>
 
+namespace utils {
 
 /*
  * A very simple condition variable class that can be used as an (almost) drop-in replacement
@@ -44,12 +49,12 @@ public:
         pulse(1);
     }
 
-    UTILS_NOINLINE
+    void notify_n(size_t n) noexcept {
+        if (n > 0) pulse(n);
+    }
+
     void wait(std::unique_lock<Mutex>& lock) noexcept {
-        uint32_t old_state = mState.load(std::memory_order_relaxed);
-        lock.unlock();
-        linuxutil::futex_wait_ex(&mState, false, old_state, false, nullptr);
-        lock.lock();
+        wait_until(lock.mutex(), false, nullptr);
     }
 
     template <class P>
@@ -59,13 +64,58 @@ public:
         }
     }
 
+    template<typename D>
+    std::cv_status wait_until(std::unique_lock<Mutex>& lock,
+            const std::chrono::time_point<std::chrono::steady_clock, D>& timeout_time) noexcept {
+        // convert to nanoseconds
+        int64_t ns = std::chrono::duration<int64_t, std::nano>(timeout_time.time_since_epoch()).count();
+        using sec_t = decltype(timespec::tv_sec);
+        using nsec_t = decltype(timespec::tv_nsec);
+        timespec ts{ sec_t(ns / 1000000000), nsec_t(ns % 1000000000) };
+        return wait_until(lock.mutex(), false, &ts);
+    }
+
+    template<typename D>
+    std::cv_status wait_until(std::unique_lock<Mutex>& lock,
+            const std::chrono::time_point<std::chrono::system_clock, D>& timeout_time) noexcept {
+        // convert to nanoseconds
+        int64_t ns = std::chrono::duration<int64_t, std::nano>(timeout_time.time_since_epoch()).count();
+        using sec_t = decltype(timespec::tv_sec);
+        using nsec_t = decltype(timespec::tv_nsec);
+        timespec ts{ sec_t(ns / 1000000000), nsec_t(ns % 1000000000) };
+        return wait_until(lock.mutex(), true, &ts);
+    }
+
+    template<typename C, typename D, typename P>
+    bool wait_until(std::unique_lock<Mutex>& lock,
+            const std::chrono::time_point<C, D>& timeout_time, P predicate) noexcept {
+        while (!predicate()) {
+            if (wait_until(lock, timeout_time) == std::cv_status::timeout) {
+                return predicate();
+            }
+        }
+        return true;
+    }
+
+    template<typename R, typename Period>
+    std::cv_status wait_for(std::unique_lock<Mutex>& lock,
+            const std::chrono::duration<R, Period>& rel_time) noexcept {
+        return wait_until(lock, std::chrono::steady_clock::now() + rel_time);
+    }
+
+    template<typename R, typename Period, typename P>
+    bool wait_for(std::unique_lock<Mutex>& lock,
+            const std::chrono::duration<R, Period>& rel_time, P pred) noexcept {
+        return wait_until(lock, std::chrono::steady_clock::now() + rel_time, std::move(pred));
+    }
+
 private:
     std::atomic<uint32_t> mState = { 0 };
 
-    inline void pulse(int threadCount) noexcept {
-        mState.fetch_add(1, std::memory_order_relaxed);
-        linuxutil::futex_wake_ex(&mState, false, threadCount);
-    }
+    void pulse(int threadCount) noexcept;
+
+    std::cv_status wait_until(Mutex* lock,
+            bool realtimeClock, timespec* ts) noexcept;
 };
 
 } // namespace utils

@@ -24,16 +24,14 @@ import android.view.Choreographer
 import android.view.Surface
 import android.view.SurfaceView
 import android.view.animation.LinearInterpolator
-
 import com.google.android.filament.*
-import com.google.android.filament.RenderableManager.*
-import com.google.android.filament.VertexBuffer.*
+import com.google.android.filament.RenderableManager.PrimitiveType
+import com.google.android.filament.VertexBuffer.AttributeType
+import com.google.android.filament.VertexBuffer.VertexAttribute
 import com.google.android.filament.android.UiHelper
-
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.Channels
-
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -102,7 +100,6 @@ class MainActivity : Activity() {
 
         // NOTE: To choose a specific rendering resolution, add the following line:
         // uiHelper.setDesiredSize(1280, 720)
-
         uiHelper.attachTo(surfaceView)
     }
 
@@ -303,7 +300,7 @@ class MainActivity : Activity() {
     inner class SurfaceCallback : UiHelper.RendererCallback {
         override fun onNativeWindowChanged(surface: Surface) {
             swapChain?.let { engine.destroySwapChain(it) }
-            swapChain = engine.createSwapChain(surface)
+            swapChain = engine.createSwapChain(surface, uiHelper.swapChainFlags)
         }
 
         override fun onDetachedFromSurface() {

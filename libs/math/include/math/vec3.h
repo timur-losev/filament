@@ -23,19 +23,20 @@
 #include <sys/types.h>
 
 
+namespace filament {
 namespace math {
 // -------------------------------------------------------------------------------------
 
 namespace details {
 
-template <typename T>
+template<typename T>
 class MATH_EMPTY_BASES TVec3 :
-                public TVecProductOperators<TVec3, T>,
-                public TVecAddOperators<TVec3, T>,
-                public TVecUnaryOperators<TVec3, T>,
-                public TVecComparisonOperators<TVec3, T>,
-                public TVecFunctions<TVec3, T>,
-                public TVecDebug<TVec3, T> {
+        public TVecProductOperators<TVec3, T>,
+        public TVecAddOperators<TVec3, T>,
+        public TVecUnaryOperators<TVec3, T>,
+        public TVecComparisonOperators<TVec3, T>,
+        public TVecFunctions<TVec3, T>,
+        public TVecDebug<TVec3, T> {
 public:
     typedef T value_type;
     typedef T& reference;
@@ -85,27 +86,25 @@ public:
     constexpr TVec3() = default;
 
     // handles implicit conversion to a tvec4. must not be explicit.
-    template<typename A, typename = typename std::enable_if<std::is_arithmetic<A>::value >::type>
-    constexpr TVec3(A v) : x(v), y(v), z(v) { }
+    template<typename A>
+    constexpr TVec3(A v) : v{ T(v), T(v), T(v) } {}
 
     template<typename A, typename B, typename C>
-    constexpr TVec3(A x, B y, C z) : x(x), y(y), z(z) { }
+    constexpr TVec3(A x, B y, C z) : v{ T(x), T(y), T(z) } {}
 
     template<typename A, typename B>
-    constexpr TVec3(const TVec2<A>& v, B z) : x(v.x), y(v.y), z(z) { }
+    constexpr TVec3(const TVec2<A>& v, B z) : v{ T(v[0]), T(v[1]), T(z) } {}
 
     template<typename A>
-    explicit
-    constexpr TVec3(const TVec3<A>& v) : x(v.x), y(v.y), z(v.z) { }
+    constexpr TVec3(const TVec3<A>& v) : v{ T(v[0]), T(v[1]), T(v[2]) } {}
 
     // cross product works only on vectors of size 3
-    template <typename RT>
-    friend inline
-    constexpr TVec3 cross(const TVec3& u, const TVec3<RT>& v) {
+    template<typename RT>
+    friend inline constexpr TVec3 cross(const TVec3& u, const TVec3<RT>& v) {
         return TVec3(
-                u.y*v.z - u.z*v.y,
-                u.z*v.x - u.x*v.z,
-                u.x*v.y - u.y*v.x);
+                u[1] * v[2] - u[2] * v[1],
+                u[2] * v[0] - u[0] * v[2],
+                u[0] * v[1] - u[1] * v[0]);
     }
 };
 
@@ -113,18 +112,22 @@ public:
 
 // ----------------------------------------------------------------------------------------
 
-typedef details::TVec3<double> double3;
-typedef details::TVec3<float> float3;
-typedef details::TVec3<half> half3;
-typedef details::TVec3<int32_t> int3;
-typedef details::TVec3<uint32_t> uint3;
-typedef details::TVec3<int16_t> short3;
-typedef details::TVec3<uint16_t> ushort3;
-typedef details::TVec3<int8_t> byte3;
-typedef details::TVec3<uint8_t> ubyte3;
-typedef details::TVec3<bool> bool3;
+template<typename T, typename = typename std::enable_if<std::is_arithmetic<T>::value>::type>
+using vec3 = details::TVec3<T>;
+
+using double3 = vec3<double>;
+using float3 = vec3<float>;
+using half3 = vec3<half>;
+using int3 = vec3<int32_t>;
+using uint3 = vec3<uint32_t>;
+using short3 = vec3<int16_t>;
+using ushort3 = vec3<uint16_t>;
+using byte3 = vec3<int8_t>;
+using ubyte3 = vec3<uint8_t>;
+using bool3 = vec3<bool>;
 
 // ----------------------------------------------------------------------------------------
 }  // namespace math
+}  // namespace filament
 
 #endif  // MATH_VEC3_H_

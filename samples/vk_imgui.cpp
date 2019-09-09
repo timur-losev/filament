@@ -23,7 +23,7 @@
 #include "app/Config.h"
 #include "app/FilamentApp.h"
 
-int main(int argc, char* argv[]) {
+int main(int argc, char** argv) {
     bool showDemo = false;
     bool showMetrics = false;
     auto imgui = [&showDemo, &showMetrics] (filament::Engine*, filament::View*) {
@@ -54,4 +54,6 @@ int main(int argc, char* argv[]) {
     config.title = "ImGui Demo";
     auto nop = [](filament::Engine*, filament::View*, filament::Scene*) {};
     FilamentApp::get().run(config, nop, nop, imgui);
+
+    return 0;
 }

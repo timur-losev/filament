@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.10)
 project(filabridge)
 
 set(TARGET         filabridge)
@@ -27,6 +27,7 @@ target_include_directories(${TARGET} PUBLIC ${PUBLIC_HDR_DIR})
 
 target_link_libraries(${TARGET} utils)
 target_link_libraries(${TARGET} math)
+target_link_libraries(${TARGET} backend)
 
 # ==================================================================================================
 # Compiler flags

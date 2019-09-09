@@ -22,11 +22,11 @@
 
 #include <filament/IndexBuffer.h>
 
-#include "CallbackUtils.h"
-#include "NioUtils.h"
+#include "common/CallbackUtils.h"
+#include "common/NioUtils.h"
 
 using namespace filament;
-using namespace driver;
+using namespace backend;
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_google_android_filament_IndexBuffer_nCreateBuilder(JNIEnv *env, jclass type) {
@@ -91,8 +91,7 @@ Java_com_google_android_filament_IndexBuffer_nSetBuffer(JNIEnv *env, jclass type
 
     BufferDescriptor desc(data, sizeInBytes, &JniBufferCallback::invoke, callback);
 
-    indexBuffer->setBuffer(*engine, std::move(desc),
-            (uint32_t) destOffsetInBytes, (uint32_t) sizeInBytes);
+    indexBuffer->setBuffer(*engine, std::move(desc), (uint32_t) destOffsetInBytes);
 
     return 0;
 }

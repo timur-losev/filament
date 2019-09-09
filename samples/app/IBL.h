@@ -17,7 +17,11 @@
 #ifndef TNT_FILAMENT_SAMPLE_IBL_H
 #define TNT_FILAMENT_SAMPLE_IBL_H
 
+#include <filament/Texture.h>
+
 #include <math/vec3.h>
+
+#include <string>
 
 namespace filament {
 class Engine;
@@ -40,6 +44,7 @@ public:
     ~IBL();
 
     bool loadFromDirectory(const utils::Path& path);
+    bool loadFromKtx(const std::string& prefix);
 
     filament::IndirectLight* getIndirectLight() const noexcept {
         return mIndirectLight;
@@ -53,9 +58,16 @@ private:
     bool loadCubemapLevel(filament::Texture** texture, const utils::Path& path,
             size_t level = 0, std::string const& levelPrefix = "") const;
 
+
+    bool loadCubemapLevel(filament::Texture** texture,
+            filament::Texture::PixelBufferDescriptor* outBuffer,
+            filament::Texture::FaceOffsets* outOffsets,
+            const utils::Path& path,
+            size_t level = 0, std::string const& levelPrefix = "") const;
+
     filament::Engine& mEngine;
 
-    math::float3 mBands[9] = {};
+    filament::math::float3 mBands[9] = {};
 
     filament::Texture* mTexture = nullptr;
     filament::IndirectLight* mIndirectLight = nullptr;

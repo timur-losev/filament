@@ -14,13 +14,11 @@
  * limitations under the License.
  */
 
-#include "filaflat/ChunkContainer.h"
+#include <filaflat/ChunkContainer.h>
 
 #include <filaflat/Unflattener.h>
 
 namespace filaflat {
-
-using namespace filamat;
 
 bool ChunkContainer::parseChunk(Unflattener& unflattener) {
     uint64_t type;
@@ -41,7 +39,7 @@ bool ChunkContainer::parseChunk(Unflattener& unflattener) {
         return false;
     }
 
-    mChunks[ChunkType(type)] = { cursor, size };
+    mChunks[Type(type)] = { cursor, size };
     unflattener.setCursor(cursor + size);
     return true;
 }

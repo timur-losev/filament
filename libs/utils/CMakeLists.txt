@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.10)
 project(utils)
 
 set(TARGET utils)
@@ -17,6 +17,8 @@ set(DIST_HDRS
         ${PUBLIC_HDR_DIR}/${TARGET}/EntityInstance.h
         ${PUBLIC_HDR_DIR}/${TARGET}/EntityManager.h
         ${PUBLIC_HDR_DIR}/${TARGET}/CString.h
+        ${PUBLIC_HDR_DIR}/${TARGET}/Path.h
+        ${PUBLIC_HDR_DIR}/${TARGET}/unwindows.h
 )
 
 set(SRCS
@@ -31,16 +33,19 @@ set(SRCS
         src/JobSystem.cpp
         src/Log.cpp
         src/NameComponentManager.cpp
+        src/ostream.cpp
         src/Panic.cpp
         src/Path.cpp
         src/Profiler.cpp
+        src/sstream.cpp
         src/Systrace.cpp
-        src/linux/futex.cpp
-)
+        )
 if (WIN32)
     list(APPEND SRCS src/win32/Path.cpp)
 endif()
 if (LINUX OR ANDROID)
+    list(APPEND SRCS src/linux/Condition.cpp)
+    list(APPEND SRCS src/linux/Mutex.cpp)
     list(APPEND SRCS src/linux/Path.cpp)
 endif()
 if (APPLE)
@@ -102,18 +107,41 @@ set(TEST_SRCS
         test/test_Entity.cpp
         test/test_JobSystem.cpp
         test/test_StructureOfArrays.cpp
+        test/test_sstream.cpp
         test/test_utils_main.cpp
         test/test_Zip2Iterator.cpp
         test/test_BinaryTreeArray.cpp
 )
 
 # The Path tests are platform-specific
-if (WIN32)
-    list(APPEND TEST_SRCS test/test_WinPath.cpp)
-else()
-    list(APPEND TEST_SRCS test/test_Path.cpp)
+if (NOT WEBGL)
+    if (WIN32)
+        list(APPEND TEST_SRCS test/test_WinPath.cpp)
+    else()
+        list(APPEND TEST_SRCS test/test_Path.cpp)
+    endif()
 endif()
 
 add_executable(test_${TARGET} ${TEST_SRCS})
 
 target_link_libraries(test_${TARGET} PRIVATE gtest utils tsl math)
+
+# ==================================================================================================
+# Benchmarks
+# ==================================================================================================
+
+add_library(benchmark_${TARGET}_callee SHARED benchmark/benchmark_callee.cpp)
+
+
+set(BENCHMARK_SRCS
+        benchmark/benchmark_allocators.cpp
+        benchmark/benchmark_binary_search.cpp
+        benchmark/benchmark_calls.cpp
+        benchmark/benchmark_JobSystem.cpp
+        benchmark/benchmark_mutex.cpp
+        benchmark/benchmark_memcpy.cpp)
+
+
+add_executable(benchmark_${TARGET} ${BENCHMARK_SRCS})
+
+target_link_libraries(benchmark_${TARGET} PRIVATE benchmark_main utils benchmark_${TARGET}_callee)

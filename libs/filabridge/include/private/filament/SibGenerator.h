@@ -14,19 +14,45 @@
  * limitations under the License.
  */
 
-#ifndef TNT_FILABRIDGE_SIBGENERATOR_BLOCK_H
-#define TNT_FILABRIDGE_SIBGENERATOR_BLOCK_H
+#ifndef TNT_FILABRIDGE_SIBGENERATOR_H
+#define TNT_FILABRIDGE_SIBGENERATOR_H
 
-#include "filament/SamplerInterfaceBlock.h"
+#include <private/filament/EngineEnums.h>
+#include <backend/DriverEnums.h>
+
+#include <stdint.h>
+#include <stddef.h>
 
 namespace filament {
 
+class SamplerInterfaceBlock;
+
 class SibGenerator {
 public:
-    static SamplerInterfaceBlock& getPerViewSib() noexcept;
-    static SamplerInterfaceBlock& getPostProcessSib() noexcept;
-    static SamplerInterfaceBlock* getSib(uint8_t bindingPoint) noexcept;
+    static SamplerInterfaceBlock const& getPerViewSib() noexcept;
+    static SamplerInterfaceBlock const& getPostProcessSib() noexcept;
+    static SamplerInterfaceBlock const* getSib(uint8_t bindingPoint) noexcept;
+};
+
+struct PerViewSib {
+    // indices of each samplers in this SamplerInterfaceBlock (see: getPerViewSib())
+    static constexpr size_t SHADOW_MAP     = 0;
+    static constexpr size_t RECORDS        = 1;
+    static constexpr size_t FROXELS        = 2;
+    static constexpr size_t IBL_DFG_LUT    = 3;
+    static constexpr size_t IBL_SPECULAR   = 4;
+    static constexpr size_t SSAO           = 5;
+
+    static constexpr size_t SAMPLER_COUNT = 6;
+};
+
+struct PostProcessSib {
+    // indices of each samplers in this SamplerInterfaceBlock (see: getPostProcessSib())
+    static constexpr size_t COLOR_BUFFER   = 0;
+    static constexpr size_t DEPTH_BUFFER   = 1;
+
+    static constexpr size_t SAMPLER_COUNT = 2;
 };
 
 }
-#endif
+#endif // TNT_FILABRIDGE_SIBGENERATOR_H

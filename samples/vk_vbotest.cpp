@@ -23,6 +23,8 @@
 
 #include "../samples/app/FilamentApp.h"
 
+#include "generated/resources/resources.h"
+
 using namespace filament;
 
 struct App {
@@ -33,14 +35,11 @@ struct App {
     utils::Entity renderable;
 };
 
-static constexpr math::float2 POSITIONS[] { {.5, 0}, {-.5, .5}, {-.5, -.5} };
+static constexpr filament::math::float2 POSITIONS[] { {.5, 0}, {-.5, .5}, {-.5, -.5} };
 static constexpr uint32_t COLORS[] { 0xffff0000u, 0xff00ff00u, 0xff0000ffu };
 static constexpr uint16_t TRIANGLE_INDICES[] { 0, 1, 2 };
-static constexpr uint8_t BAKED_COLOR_PACKAGE[] {
-    #include "generated/material/bakedColor.inc"
-};
 
-int main() {
+int main(int argc, char** argv) {
     Config config;
     config.title = "vbotest";
     config.backend = Engine::Backend::VULKAN;
@@ -67,7 +66,7 @@ int main() {
 
         // Construct material.
         app.mat = Material::Builder()
-                .package((void*) BAKED_COLOR_PACKAGE, sizeof(BAKED_COLOR_PACKAGE)).build(*engine);
+                .package(RESOURCES_BAKEDCOLOR_DATA, RESOURCES_BAKEDCOLOR_SIZE).build(*engine);
 
         // Construct renderable.
         RenderableManager::Builder(1)
@@ -91,4 +90,6 @@ int main() {
     };
 
     FilamentApp::get().run(config, setup, cleanup);
+
+    return 0;
 }

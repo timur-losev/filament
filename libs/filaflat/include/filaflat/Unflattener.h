@@ -17,11 +17,8 @@
 #ifndef TNT_FILAFLAT_UNFLATTENER_H
 #define TNT_FILAFLAT_UNFLATTENER_H
 
-#include <filaflat/ChunkContainer.h>
-
 #include <utils/compiler.h>
-
-#include <string>
+#include <utils/CString.h>
 
 #include <stdint.h>
 
@@ -36,11 +33,7 @@ public:
             : mSrc(src), mCursor(src), mEnd(end) {
     }
 
-    Unflattener(ChunkContainer const& container, filamat::ChunkType type)
-            : mSrc(container.getChunkStart(type)),
-              mCursor(mSrc),
-              mEnd(container.getChunkEnd(type)) {
-    }
+    Unflattener(Unflattener const&) = default;
 
     ~Unflattener() = default;
 
@@ -49,7 +42,7 @@ public:
     }
 
     inline bool willOverflow(size_t size) const noexcept {
-        return (mCursor + size) >  mEnd;
+        return (mCursor + size) > mEnd;
     }
 
     bool read(bool* b) noexcept {
@@ -111,7 +104,7 @@ public:
         return true;
     }
 
-    bool read(std::string* s) noexcept;
+    bool read(utils::CString* s) noexcept;
 
     bool read(const char** blob, size_t* size) noexcept;
 

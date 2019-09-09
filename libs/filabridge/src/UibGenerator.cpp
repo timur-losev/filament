@@ -16,13 +16,23 @@
 
 #include "private/filament/UibGenerator.h"
 
-#include "filament/EngineEnums.h"
-#include "filament/driver/DriverEnums.h"
+#include "private/filament/UniformInterfaceBlock.h"
+
+#include <private/filament/EngineEnums.h>
+#include <backend/DriverEnums.h>
 
 namespace filament {
-    using namespace driver;
 
-UniformInterfaceBlock& UibGenerator::getPerViewUib() noexcept  {
+using namespace backend;
+
+static_assert(sizeof(PerRenderableUib) % 256 == 0,
+        "sizeof(Transform) should be a multiple of 256");
+
+static_assert(CONFIG_MAX_BONE_COUNT * sizeof(PerRenderableUibBone) <= 16384,
+        "Bones exceed max UBO size");
+
+
+UniformInterfaceBlock const& UibGenerator::getPerViewUib() noexcept  {
     // IMPORTANT NOTE: Respect std140 layout, don't update without updating Engine::PerViewUib
     static UniformInterfaceBlock uib = UniformInterfaceBlock::Builder()
             .name("FrameUniforms")
@@ -32,6 +42,7 @@ UniformInterfaceBlock& UibGenerator::getPerViewUib() noexcept  {
             .add("clipFromViewMatrix",      1, UniformInterfaceBlock::Type::MAT4, Precision::HIGH)
             .add("viewFromClipMatrix",      1, UniformInterfaceBlock::Type::MAT4, Precision::HIGH)
             .add("clipFromWorldMatrix",     1, UniformInterfaceBlock::Type::MAT4, Precision::HIGH)
+            .add("worldFromClipMatrix",     1, UniformInterfaceBlock::Type::MAT4, Precision::HIGH)
             .add("lightFromWorldMatrix",    1, UniformInterfaceBlock::Type::MAT4, Precision::HIGH)
             // view
             .add("resolution",              1, UniformInterfaceBlock::Type::FLOAT4, Precision::HIGH)
@@ -60,20 +71,34 @@ UniformInterfaceBlock& UibGenerator::getPerViewUib() noexcept  {
             .add("ev100",                   1, UniformInterfaceBlock::Type::FLOAT)
             // ibl
             .add("iblSH",                   9, UniformInterfaceBlock::Type::FLOAT3)
+            // user time
+            .add("userTime",                1, UniformInterfaceBlock::Type::FLOAT4)
+            // ibl max mip level
+            .add("iblMaxMipLevel",          1, UniformInterfaceBlock::Type::FLOAT2)
+            .add("padding0",                1, UniformInterfaceBlock::Type::FLOAT2)
+            // view
+            .add("worldOffset",             1, UniformInterfaceBlock::Type::FLOAT3)
+            // bring size to 1 KiB
+            .add("padding1",                1, UniformInterfaceBlock::Type::FLOAT)
+            .add("padding2",                15, UniformInterfaceBlock::Type::FLOAT4)
             .build();
     return uib;
 }
 
-UniformInterfaceBlock& UibGenerator::getPerRenderableUib() noexcept {
+UniformInterfaceBlock const& UibGenerator::getPerRenderableUib() noexcept {
     static UniformInterfaceBlock uib =  UniformInterfaceBlock::Builder()
             .name("ObjectUniforms")
             .add("worldFromModelMatrix",       1, UniformInterfaceBlock::Type::MAT4, Precision::HIGH)
             .add("worldFromModelNormalMatrix", 1, UniformInterfaceBlock::Type::MAT3, Precision::HIGH)
+            .add("morphWeights", 1, UniformInterfaceBlock::Type::FLOAT4, Precision::HIGH)
+            .add("skinningEnabled", 1, UniformInterfaceBlock::Type::INT)
+            .add("morphingEnabled", 1, UniformInterfaceBlock::Type::INT)
+            .add("padding0", 1, UniformInterfaceBlock::Type::FLOAT2)
             .build();
     return uib;
 }
 
-UniformInterfaceBlock& UibGenerator::getLightsUib() noexcept {
+UniformInterfaceBlock const& UibGenerator::getLightsUib() noexcept {
     static UniformInterfaceBlock uib = UniformInterfaceBlock::Builder()
             .name("LightsUniforms")
             .add("lights", CONFIG_MAX_LIGHT_COUNT, UniformInterfaceBlock::Type::MAT4, Precision::HIGH)
@@ -81,20 +106,20 @@ UniformInterfaceBlock& UibGenerator::getLightsUib() noexcept {
     return uib;
 }
 
-UniformInterfaceBlock& UibGenerator::getPostProcessingUib() noexcept {
+UniformInterfaceBlock const& UibGenerator::getPostProcessingUib() noexcept {
     static UniformInterfaceBlock uib =  UniformInterfaceBlock::Builder()
             .name("PostProcessUniforms")
-            .add("uvScale", 1, UniformInterfaceBlock::Type::FLOAT2)
-            .add("time",    1, UniformInterfaceBlock::Type::FLOAT)
-            .add("yOffset", 1, UniformInterfaceBlock::Type::FLOAT)
+            .add("uvScale",   1, UniformInterfaceBlock::Type::FLOAT2)
+            .add("time",      1, UniformInterfaceBlock::Type::FLOAT)
+            .add("dithering", 1, UniformInterfaceBlock::Type::INT)
             .build();
     return uib;
 }
 
-UniformInterfaceBlock& UibGenerator::getPerRenderableBonesUib() noexcept {
+UniformInterfaceBlock const& UibGenerator::getPerRenderableBonesUib() noexcept {
     static UniformInterfaceBlock uib = UniformInterfaceBlock::Builder()
             .name("BonesUniforms")
-            .add("bones", CONFIG_MAX_BONE_COUNT * 2, UniformInterfaceBlock::Type::FLOAT4, Precision::MEDIUM)
+            .add("bones", CONFIG_MAX_BONE_COUNT * 4, UniformInterfaceBlock::Type::FLOAT4, Precision::MEDIUM)
             .build();
     return uib;
 }

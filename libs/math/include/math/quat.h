@@ -21,29 +21,29 @@
 #include <math/TQuatHelpers.h>
 #include <math/vec3.h>
 #include <math/vec4.h>
+#include <math/compiler.h>
 
 #include <stdint.h>
 #include <sys/types.h>
 
-#ifndef PURE
-#define PURE __attribute__((pure))
-#endif
-
+namespace filament {
 namespace math {
 // -------------------------------------------------------------------------------------
 
 namespace details {
 
-template <typename T>
+template<typename T>
 class MATH_EMPTY_BASES TQuaternion :
-                    public TVecAddOperators<TQuaternion, T>,
-                    public TVecUnaryOperators<TQuaternion, T>,
-                    public TVecComparisonOperators<TQuaternion, T>,
-                    public TQuatProductOperators<TQuaternion, T>,
-                    public TQuatFunctions<TQuaternion, T>,
-                    public TQuatDebug<TQuaternion, T> {
+        public TVecAddOperators<TQuaternion, T>,
+        public TVecUnaryOperators<TQuaternion, T>,
+        public TVecComparisonOperators<TQuaternion, T>,
+        public TQuatProductOperators<TQuaternion, T>,
+        public TQuatFunctions<TQuaternion, T>,
+        public TQuatDebug<TQuaternion, T> {
 public:
-    enum no_init { NO_INIT };
+    enum no_init {
+        NO_INIT
+    };
     typedef T value_type;
     typedef T& reference;
     typedef T const& const_reference;
@@ -86,7 +86,7 @@ public:
     // we want the compiler generated versions for these...
     TQuaternion(const TQuaternion&) = default;
     ~TQuaternion() = default;
-    TQuaternion& operator = (const TQuaternion&) = default;
+    TQuaternion& operator=(const TQuaternion&) = default;
 
     // constructors
 
@@ -94,7 +94,7 @@ public:
     explicit constexpr TQuaternion(no_init) {}
 
     // default constructor. sets all values to zero.
-    constexpr TQuaternion() : x(0), y(0), z(0), w(0) { }
+    constexpr TQuaternion() : x(0), y(0), z(0), w(0) {}
 
     // handles implicit conversion to a tvec4. must not be explicit.
     template<typename A>
@@ -104,19 +104,19 @@ public:
 
     // initialize from 4 values to w + xi + yj + zk
     template<typename A, typename B, typename C, typename D>
-    constexpr TQuaternion(A w, B x, C y, D z) : x(x), y(y), z(z), w(w) { }
+    constexpr TQuaternion(A w, B x, C y, D z) : x(x), y(y), z(z), w(w) {}
 
     // initialize from a vec3 + a value to : v.xi + v.yj + v.zk + w
     template<typename A, typename B>
-    constexpr TQuaternion(const TVec3<A>& v, B w) : x(v.x), y(v.y), z(v.z), w(w) { }
+    constexpr TQuaternion(const TVec3<A>& v, B w) : x(v.x), y(v.y), z(v.z), w(w) {}
 
     // initialize from a double4
     template<typename A>
-    constexpr explicit TQuaternion(const TVec4<A>& v) : x(v.x), y(v.y), z(v.z), w(v.w) { }
+    constexpr explicit TQuaternion(const TVec4<A>& v) : x(v.x), y(v.y), z(v.z), w(v.w) {}
 
     // initialize from a quaternion of a different type
     template<typename A>
-    constexpr explicit TQuaternion(const TQuaternion<A>& v) : x(v.x), y(v.y), z(v.z), w(v.w) { }
+    constexpr explicit TQuaternion(const TQuaternion<A>& v) : x(v.x), y(v.y), z(v.z), w(v.w) {}
 
     // conjugate operator
     constexpr TQuaternion operator~() const {
@@ -124,9 +124,9 @@ public:
     }
 
     // constructs a quaternion from an axis and angle
-    template <typename A, typename B>
-    constexpr static TQuaternion PURE fromAxisAngle(const TVec3<A>& axis, B angle) {
-        return TQuaternion(std::sin(angle*0.5) * normalize(axis), std::cos(angle*0.5));
+    template<typename A, typename B>
+    constexpr static TQuaternion MATH_PURE fromAxisAngle(const TVec3<A>& axis, B angle) {
+        return TQuaternion(std::sin(angle * 0.5) * normalize(axis), std::cos(angle * 0.5));
     }
 };
 
@@ -138,29 +138,32 @@ typedef details::TQuaternion<double> quat;
 typedef details::TQuaternion<float> quatf;
 typedef details::TQuaternion<half> quath;
 
-constexpr inline quat operator"" _i(long double v) {
+constexpr inline quat operator "" _i(long double v) {
     return quat(0.0, double(v), 0.0, 0.0);
 }
-constexpr inline quat operator"" _j(long double v) {
+
+constexpr inline quat operator "" _j(long double v) {
     return quat(0.0, 0.0, double(v), 0.0);
 }
-constexpr inline quat operator"" _k(long double v) {
+
+constexpr inline quat operator "" _k(long double v) {
     return quat(0.0, 0.0, 0.0, double(v));
 }
 
-constexpr inline quat operator"" _i(unsigned long long v) {
+constexpr inline quat operator "" _i(unsigned long long v) {
     return quat(0.0, double(v), 0.0, 0.0);
 }
-constexpr inline quat operator"" _j(unsigned long long v) {
+
+constexpr inline quat operator "" _j(unsigned long long v) {
     return quat(0.0, 0.0, double(v), 0.0);
 }
-constexpr inline quat operator"" _k(unsigned long long v) {
+
+constexpr inline quat operator "" _k(unsigned long long v) {
     return quat(0.0, 0.0, 0.0, double(v));
 }
 
 // ----------------------------------------------------------------------------------------
 }  // namespace math
-
-#undef PURE
+}  // namespace filament
 
 #endif  // MATH_QUAT_H_

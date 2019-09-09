@@ -21,7 +21,7 @@
 #include <filament/Fence.h>
 #include <filament/SwapChain.h>
 
-#include <filament/driver/ExternalContext.h>
+#include <backend/Platform.h>
 
 #include <utils/compiler.h>
 #include <utils/EntityManager.h>
@@ -36,6 +36,7 @@ class IndirectLight;
 class Material;
 class MaterialInstance;
 class Renderer;
+class RenderTarget;
 class Scene;
 class Skybox;
 class Stream;
@@ -94,10 +95,10 @@ class TransformManager;
  *     }
  * } while (!quit);
  *
- * engine->destroy(&view);
- * engine->destroy(&scene);
- * engine->destroy(&renderer);
- * engine->destroy(&swapChain);
+ * engine->destroy(view);
+ * engine->destroy(scene);
+ * engine->destroy(renderer);
+ * engine->destroy(swapChain);
  * Engine::destroy(&engine); // clears engine*
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  *
@@ -142,34 +143,36 @@ class TransformManager;
  */
 class UTILS_PUBLIC Engine {
 public:
-    using ExternalContext = driver::ExternalContext;
-    using Backend = driver::Backend;
+    using Platform = backend::Platform;
+    using Backend = backend::Backend;
 
     /**
      * Creates an instance of Engine
      *
-     * @param externalContext   A pointer to an object that implements ExternalContext. If this is
-     *                          provided, then this object is used to manage the hardware context
-     *                          (e.g. OpenGL) lifecycle for filament.
+     * @param backend           Which driver backend to use.
      *
-     *                          If not provided (or nullptr is used), an appropriate hardware
-     *                          context is created automatically.
+     * @param platform          A pointer to an object that implements Platform. If this is
+     *                          provided, then this object is used to create the hardware context
+     *                          and expose platform features to it.
+     *
+     *                          If not provided (or nullptr is used), an appropriate Platform
+     *                          is created automatically.
      *
      *                          All methods of this interface are called from filament's
      *                          render thread, which is different from the main thread.
      *
-     *                          The lifetime of \p externalContext must exceed the life time of
+     *                          The lifetime of \p platform must exceed the lifetime of
      *                          the Engine object.
      *
      *  @param sharedGLContext  A platform-dependant OpenGL context used as a shared context
      *                          when creating filament's internal context.
      *                          Setting this parameter will force filament to use the OpenGL
-     *                          implementation (instead of Vulkaan for instance).
+     *                          implementation (instead of Vulkan for instance).
      *
      *
      * @return A pointer to the newly created Engine, or nullptr if the Engine couldn't be created.
      *
-     * @error nullptr if the GPU driver couldn't be initialized, for instance if it doesn't
+     * nullptr if the GPU driver couldn't be initialized, for instance if it doesn't
      * support the right version of OpenGL or OpenGL ES.
      *
      * @exception utils::PostConditionPanic can be thrown if there isn't enough memory to
@@ -180,7 +183,7 @@ public:
      * This method is thread-safe.
      */
     static Engine* create(Backend backend = Backend::DEFAULT,
-            ExternalContext* externalContext = nullptr, void* sharedGLContext = nullptr);
+            Platform* platform = nullptr, void* sharedGLContext = nullptr);
 
     /**
      * Destroy the Engine instance and all associated resources.
@@ -209,6 +212,33 @@ public:
      * This method is thread-safe.
      */
     static void destroy(Engine** engine);
+
+    /**
+     * Destroy the Engine instance and all associated resources.
+     *
+     * Engine.destroy() should be called last and after all other resources have been destroyed,
+     * it ensures all filament resources are freed.
+     *
+     * Destroy performs the following tasks:
+     * 1. Destroy all internal software and hardware resources.
+     * 2. Free all user allocated resources that are not already destroyed and logs a warning.
+     *    This indicates a "leak" in the user's code.
+     * 3. Terminate the rendering engine's thread.
+     *
+     * @param engine A pointer to the filament.Engine to be destroyed.
+     *
+     * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     * #include <filament/Engine.h>
+     * using namespace filament;
+     *
+     * Engine* engine = Engine::create();
+     * Engine::destroy(engine);
+     * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     *
+     * \remark
+     * This method is thread-safe.
+     */
+    static void destroy(Engine* engine);
 
     RenderableManager& getRenderableManager() noexcept;
 
@@ -261,6 +291,23 @@ public:
     Camera* createCamera(utils::Entity entity) noexcept;
 
     /**
+     * Returns the Camera component of the given its entity.
+     *
+     * @param entity An entity.
+     * @return A pointer to the Camera component for this entity or nullptr if the entity didn't
+     *         have a Camera component. The pointer is valid until destroyCameraComponent()
+     *         (or destroyCamera()) is called or the entity itself is destroyed.
+     */
+    Camera* getCameraComponent(utils::Entity entity) noexcept;
+
+    /**
+     * Destroys the Camera component associated with the given entity.
+     *
+     * @param entity An entity.
+     */
+    void destroyCameraComponent(utils::Entity entity) noexcept;
+
+    /**
      * Creates a Fence.
      *
      * @param type Type of Fence to create
@@ -280,7 +327,7 @@ public:
      * @attention All MaterialInstance of the specified material must be destroyed before
      *            destroying a Material.
      * @exception utils::PreConditionPanic is thrown if some MaterialInstances remain.
-     * @error no-op if exceptions are disabled and some MaterialInstances remain.
+     * no-op if exceptions are disabled and some MaterialInstances remain.
      */
     void destroy(const Material* p);
     void destroy(const MaterialInstance* p);    //!< Destroys a MaterialInstance object.
@@ -290,6 +337,7 @@ public:
     void destroy(const SwapChain* p);           //!< Destroys a SwapChain object.
     void destroy(const Stream* p);              //!< Destroys a Stream object.
     void destroy(const Texture* p);             //!< Destroys a Texture object.
+    void destroy(const RenderTarget* p);        //!< Destroys a RenderTarget object.
     void destroy(const View* p);                //!< Destroys a View object.
     void destroy(utils::Entity e);              //!< Destroys all filament-known components from this entity
 
@@ -302,6 +350,10 @@ public:
      */
     const Material* getDefaultMaterial() const noexcept;
 
+    /**
+     * Returns the resolved backend.
+     */
+    Backend getBackend() const noexcept;
 
     /**
      * Allocate a small amount of memory directly in the command stream. The allocated memory is
@@ -329,7 +381,9 @@ public:
     /**
      * helper for destroying the Camera component and its Entity in one call
      *
-     * @param camera Camera component to destroy. The associated entity is destroyed as well.
+     * @param camera Camera component to destroy. The associated entity as well as all its
+     *               components managed by filament are destroyed.
+     * @deprecated use destroyCameraComponent(Entity) instead
      */
     inline void destroy(const Camera* camera) {
         destroy(camera->getEntity());

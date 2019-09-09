@@ -24,7 +24,7 @@
 #include <filament/Viewport.h>
 #include <filament/FilamentAPI.h>
 
-#include <filament/driver/DriverEnums.h>
+#include <backend/DriverEnums.h>
 
 #include <utils/compiler.h>
 
@@ -35,6 +35,7 @@ namespace filament {
 
 class Camera;
 class MaterialInstance;
+class RenderTarget;
 class Scene;
 
 /**
@@ -60,7 +61,7 @@ class Scene;
  */
 class UTILS_PUBLIC View : public FilamentAPI {
 public:
-    using TargetBufferFlags = driver::TargetBufferFlags;
+    using TargetBufferFlags = backend::TargetBufferFlags;
 
     /**
      * Dynamic resolution can be used to either reach a desired target frame rate
@@ -75,7 +76,7 @@ public:
      *
      * enabled:   enable or disables dynamic resolution on a View
      * homogeneousScaling: by default the system scales the major axis first. Set this to true
-     *                     to force homegeneous scaling.
+     *                     to force homogeneous scaling.
      * scaleRate: rate at which the scale will change to reach the target frame rate
      *            This value can be computed as 1 / N, where N is the number of frames
      *            needed to reach 64% of the target scale factor.
@@ -110,17 +111,113 @@ public:
         float scaleRate = 0.125f;                       //!< rate at which the scale will change
         float targetFrameTimeMilli = 1000.0f / 60.0f;   //!< desired frame time, or budget.
         float headRoomRatio = 0.0f;                     //!< additional headroom for the GPU
-        float reserved[5] = { 0.0f };                   //!< reserved fields, must be zero
         uint8_t history = 9;                            //!< history size
         bool enabled = false;                           //!< enable or disable dynamic resolution
         bool homogeneousScaling = false;                //!< set to true to force homogeneous scaling
     };
 
+    enum class QualityLevel : int8_t {
+        LOW,
+        MEDIUM,
+        HIGH,
+        ULTRA
+    };
+
+    /**
+     * Structure used to set the quality of the rendering of a View. This structure
+     * offers separate quality settings for different parts of the rendering pipeline:
+     *
+     * hdrColorBuffer: sets the quality of the HDR color buffer. A quality of HIGH or ULTRA means
+     *              using an RGB16F or RGBA16F color buffer. This means colors in the LDR
+     *              range (0..1) have a 10 bit precision. A quality of LOW or MEDIUM means
+     *              using an R11G11B10F opaque color buffer or an RGBA16F transparent color
+     *              buffer. With R11G11B10F colors in the LDR range have a precision of either
+     *              6 bits (red and green channels) or 5 bits (blue channel).
+     *
+     * @see setRenderQuality, getAntiAliasing
+     */
+    struct RenderQuality {
+        QualityLevel hdrColorBuffer = QualityLevel::HIGH; //!< quality of the color buffer
+    };
+
+    /**
+     * Options for Ambient Occlusion
+     * @see setAmbientOcclusion()
+     */
+    struct AmbientOcclusionOptions {
+        float radius = 0.3f;    //!< Ambient Occlusion radius in meters, between 0 and ~10.
+        float bias = 0.005f;    //!< Self-occlusion bias in meters. Use to avoid self-occlusion. Between 0 and a few mm.
+        float power = 0.0f;     //!< Controls ambient occlusion's contrast. Between 0 (linear) and 1 (squared)
+        float resolution = 0.5; //!< How each dimension of the AO buffer is scaled. Must be positive and <= 1.
+    };
+
+    /**
+     * List of available ambient occlusion techniques
+    */
+    enum class AmbientOcclusion : uint8_t {
+        NONE = 0,       //!< No Ambient Occlusion
+        SSAO = 1        //!< Basic, sampling SSAO
+    };
+
+    /**
+     * List of available post-processing anti-aliasing techniques.
+     * @see setAntiAliasing, getAntiAliasing
+     */
+    enum class AntiAliasing : uint8_t {
+        NONE = 0,   //!< no anti aliasing performed as part of post-processing
+        FXAA = 1    //!< FXAA is a low-quality but very efficient type of anti-aliasing. (default).
+    };
+
+    /** @see setDepthPrepass */
     enum class DepthPrepass : int8_t {
         DEFAULT = -1,
         DISABLED,
         ENABLED,
     };
+
+    /**
+     * List of available post-processing dithering techniques.
+     */
+    enum class Dithering : uint8_t {
+        NONE = 0,       //!< No dithering
+        TEMPORAL = 1    //!< Temporal dithering (default)
+    };
+
+    /**
+     * List of available tone-mapping operators
+     */
+    enum class ToneMapping : uint8_t {
+        LINEAR = 0,     //!< Linear tone mapping (i.e. no tone mapping)
+        ACES = 1,       //!< ACES tone mapping
+    };
+
+    /**
+     * Activates or deactivates ambient occlusion.
+     *
+     * @param ambientOcclusion Type of ambient occlusion to use.
+     */
+    void setAmbientOcclusion(AmbientOcclusion ambientOcclusion) noexcept;
+
+    /**
+     * Query the type of ambient occlusion active for this View.
+     *
+     * @return ambient occlusion type.
+     */
+    AmbientOcclusion getAmbientOcclusion() const noexcept;
+
+    /**
+     * Sets ambient occlusion options.
+     *
+     * @param options Options for ambient occlusion.
+     */
+    void setAmbientOcclusionOptions(AmbientOcclusionOptions const& options) noexcept;
+
+    /**
+     * Gets the ambient occlusion options.
+     *
+     * @return ambient occlusion options currently set.
+     */
+    AmbientOcclusionOptions const& getAmbientOcclusionOptions() const noexcept;
 
     /**
      * Sets whether this view is rendered with or without a depth pre-pass.
@@ -178,6 +275,10 @@ public:
      */
     Scene* getScene() noexcept;
 
+    /**
+     * Returns the Scene currently associated with this View.
+     * @return A pointer to the Scene associated to this View. nullptr if no Scene is set.
+     */
     Scene const* getScene() const noexcept {
         return const_cast<View*>(this)->getScene();
     }
@@ -265,7 +366,7 @@ public:
      *
      * Renderable objects can have one or several layers associated to them. Layers are
      * represented with an 8-bits bitmask, where each bit corresponds to a layer.
-     * @see Renderable::setLayer().
+     * @see RenderableManager::setLayerMask().
      *
      * This call sets which of those layers are visible, Renderable in invisible layers won't be
      * rendered.
@@ -291,23 +392,33 @@ public:
     void setShadowsEnabled(bool enabled) noexcept;
 
     /**
+     * Specifies an offscreen render target to render into.
+     *
+     * By default, the view's associated render target is nullptr, which corresponds to the
+     * SwapChain associated with the engine.
+     *
+     * @param renderTarget Render target associated with view, or nullptr for the swap chain.
+     * @param discard Buffers that need to be discarded before rendering.
+     */
+    void setRenderTarget(RenderTarget* renderTarget,
+            TargetBufferFlags discard = TargetBufferFlags::ALL) noexcept;
+
+    /**
      * Specifies which buffers can be discarded before rendering.
      *
      * For performance reasons, the default is to discard all buffers, which is generally
      * correct when rendering a single view.
      *
      * However, when rendering a View on top of another one on the same render target,
-     * it is necessary toindicate that the color buffer cannot be discarded.
+     * it is necessary to indicate that the color buffer cannot be discarded.
      *
      * @param discard Buffers that need to be discarded before rendering.
-     *
-     * @note
-     * In the future this API will also allow to set the render target.
      */
     void setRenderTarget(TargetBufferFlags discard = TargetBufferFlags::ALL) noexcept;
 
     /**
-     * Sets how many samples are to be used for MSAA. Default is 1.
+     * Sets how many samples are to be used for MSAA in the post-process stage.
+     * Default is 1 and disables MSAA.
      *
      * @param count number of samples to use for multi-sampled anti-aliasing.\n
      *              0: treated as 1
@@ -315,33 +426,67 @@ public:
      *              n: sample count. Effective sample could be different depending on the
      *                 GPU capabilities.
      *
+     * @note Anti-aliasing can also be performed in the post-processing stage, generally at lower
+     *       cost. See setAntialiasing.
+     *
+     * @see setAntialiasing
      */
     void setSampleCount(uint8_t count = 1) noexcept;
 
     /**
-     * Returns the sample count set by setSampleCount(). Effective sample could be different
+     * Returns the sample count set by setSampleCount(). Effective sample could be different.
+     * A value of 0 or 1 means MSAA is disabled.
+     *
      * @return value set by setSampleCount().
      */
     uint8_t getSampleCount() const noexcept;
 
-    enum AntiAliasing : uint8_t {
-        NONE = 0,
-        FXAA = 1
-    };
-
     /**
-     * Enables or disables in the post-processing stage. Enabled by default.
+     * Enables or disables anti-aliasing in the post-processing stage. Enabled by default.
+     * MSAA can be enabled in addition, see setSampleCount().
      *
      * @param type FXAA for enabling, NONE for disabling anti-aliasing.
+     *
+     * @note For MSAA anti-aliasing, see setSamplerCount().
+     *
+     * @see setSampleCount
      */
     void setAntiAliasing(AntiAliasing type) noexcept;
 
     /**
-     * Queries whether FXAA is enabled during the post-processing stage.
+     * Queries whether anti-aliasing is enabled during the post-processing stage. To query
+     * whether MSAA is enabled, see getSampleCount().
      *
-     * @return true if FXAA is enabled, false if not.
+     * @return The post-processing anti-aliasing method.
      */
     AntiAliasing getAntiAliasing() const noexcept;
+
+    /**
+     * Enables or disables tone-mapping in the post-processing stage. Enabled by default.
+     *
+     * @param type Tone-mapping function.
+     */
+    void setToneMapping(ToneMapping type) noexcept;
+
+    /**
+     * Returns the tone-mapping function.
+     * @return tone-mapping function.
+     */
+    ToneMapping getToneMapping() const noexcept;
+
+    /**
+     * Enables or disables dithering in the post-processing stage. Enabled by default.
+     *
+     * @param dithering dithering type
+     */
+    void setDithering(Dithering dithering) noexcept;
+
+    /**
+     * Queries whether dithering is enabled during the post-processing stage.
+     *
+     * @return the current dithering type for this view.
+     */
+    Dithering getDithering() const noexcept;
 
     /**
      * Sets the dynamic resolution options for this view. Dynamic resolution options
@@ -358,6 +503,20 @@ public:
     DynamicResolutionOptions getDynamicResolutionOptions() const noexcept;
 
     /**
+     * Sets the rendering quality for this view. Refer to RenderQuality for more
+     * information about the different settings available.
+     *
+     * @param renderQuality The render quality to use on this view
+     */
+    void setRenderQuality(RenderQuality const& renderQuality) noexcept;
+
+    /**
+     * Returns the render quality used by this view.
+     * @return value set by setRenderQuality().
+     */
+    RenderQuality getRenderQuality() const noexcept;
+
+    /**
      * Sets options relative to dynamic lighting for this view.
      *
      * @param zLightNear Distance from the camera where the lights are expected to shine.
@@ -368,7 +527,7 @@ public:
      *                   isn't visible and if lights are expected to shine there, there is no
      *                   point using a short zLightNear. (Default 5m).
      *
-     * @param zLightFar Distance from the camera after which lighits are not expected to be visible.
+     * @param zLightFar Distance from the camera after which lights are not expected to be visible.
      *                  Similarly to zLightNear, setting this value properly can improve
      *                  performance. (Default 100m).
      *
@@ -383,27 +542,52 @@ public:
      * Enable or disable post processing. Enabled by default.
      *
      * Post-processing includes:
-     *  - MSAA
      *  - Tone-mapping & gamma encoding
+     *  - Dithering
+     *  - MSAA
      *  - FXAA
      *  - Dynamic scaling
      *
-     * For now, disabling post-processing forgoes color correctness as well as anti-aliasing and
+     * Disabling post-processing forgoes color correctness as well as anti-aliasing and
      * should only be used experimentally (e.g., for UI overlays).
      *
      * @param enabled true enables post processing, false disables it.
+     *
+     * @see setToneMapping, setAntiAliasing, setDithering, setSampleCount
      */
     void setPostProcessingEnabled(bool enabled) noexcept;
 
+    //! Returns true if post-processing is enabled. See setPostProcessingEnabled() for more info.
     bool isPostProcessingEnabled() const noexcept;
+
+    /**
+     * Inverts the winding order of front faces. By default front faces use a counter-clockwise
+     * winding order. When the winding order is inverted, front faces are faces with a clockwise
+     * winding order.
+     *
+     * Changing the winding order will directly affect the culling mode in materials
+     * (see Material::getCullingMode()).
+     *
+     * Inverting the winding order of front faces is useful when rendering mirrored reflections
+     * (water, mirror surfaces, front camera in AR, etc.).
+     *
+     * @param inverted True to invert front faces, false otherwise.
+     */
+    void setFrontFaceWindingInverted(bool inverted) noexcept;
+
+    /**
+     * Returns true if the winding order of front faces is inverted.
+     * See setFrontFaceWindingInverted() for more information.
+     */
+    bool isFrontFaceWindingInverted() const noexcept;
 
     // for debugging...
 
-    //! debugging: allows to entirely disable culling. (culling enabled by default).
-    void setCulling(bool culling) noexcept;
+    //! debugging: allows to entirely disable frustum culling. (culling enabled by default).
+    void setFrustumCullingEnabled(bool culling) noexcept;
 
-    //! debugging: returns whether culling is enabled.
-    bool isCullingEnabled() const noexcept;
+    //! debugging: returns whether frustum culling is enabled.
+    bool isFrustumCullingEnabled() const noexcept;
 
     //! debugging: sets the Camera used for rendering. It may be different from the culling camera.
     void setDebugCamera(Camera* camera) noexcept;

@@ -261,10 +261,10 @@ class MainActivity : Activity() {
                 .put(Vertex(-1.0f,  1.0f, -1.0f, tfNX))
                 .put(Vertex(-1.0f, -1.0f, -1.0f, tfNX))
                 // Face -Y
-                .put(Vertex(-1.0f, -1.0f, -1.0f, tfNY))
                 .put(Vertex(-1.0f, -1.0f,  1.0f, tfNY))
-                .put(Vertex( 1.0f, -1.0f,  1.0f, tfNY))
+                .put(Vertex(-1.0f, -1.0f, -1.0f, tfNY))
                 .put(Vertex( 1.0f, -1.0f, -1.0f, tfNY))
+                .put(Vertex( 1.0f, -1.0f,  1.0f, tfNY))
                 // Face +Y
                 .put(Vertex(-1.0f,  1.0f, -1.0f, tfPY))
                 .put(Vertex(-1.0f,  1.0f,  1.0f, tfPY))
@@ -291,7 +291,7 @@ class MainActivity : Activity() {
         // Create the indices
         val indexData = ByteBuffer.allocate(6 * 2 * 3 * shortSize)
                 .order(ByteOrder.nativeOrder())
-        (0..5).forEach {
+        repeat(6) {
             val i = (it * 4).toShort()
             indexData
                     .putShort(i).putShort((i + 1).toShort()).putShort((i + 2).toShort())

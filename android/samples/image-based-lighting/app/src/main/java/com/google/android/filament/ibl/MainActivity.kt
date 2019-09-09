@@ -117,6 +117,8 @@ class MainActivity : Activity() {
         // unnecessary when using a skybox
         view.setClearColor(0.035f, 0.035f, 0.035f, 1.0f)
 
+        view.ambientOcclusion = View.AmbientOcclusion.SSAO
+
         // NOTE: Try to disable post-processing (tone-mapping, etc.) to see the difference
         // view.isPostProcessingEnabled = false
 
@@ -132,8 +134,8 @@ class MainActivity : Activity() {
         setupMaterial()
         loadImageBasedLight()
 
-        scene.setSkybox(ibl.skybox)
-        scene.setIndirectLight(ibl.indirectLight)
+        scene.skybox = ibl.skybox
+        scene.indirectLight = ibl.indirectLight
 
         // This map can contain named materials that will map to the material names
         // loaded from the filamesh file. The material called "DefaultMaterial" is
@@ -197,7 +199,7 @@ class MainActivity : Activity() {
     }
 
     private fun loadImageBasedLight() {
-        ibl = loadIbl(assets, "envs/flower_road_2k", engine)
+        ibl = loadIbl(assets, "envs/flower_road_no_sun_2k", engine)
         ibl.indirectLight.intensity = 40_000.0f
     }
 

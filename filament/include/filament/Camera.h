@@ -250,8 +250,8 @@ public:
 
     /** Sets the camera's view matrix
      *
-     * @param eye       The point in world space the camera is looking at.
-     * @param center    The position of the camera in world space.
+     * @param eye       The position of the camera in world space.
+     * @param center    The point in world space the camera is looking at.
      * @param up        A unit vector denoting the camera's "up" direction.
      */
     void lookAt(const math::float3& eye,
@@ -291,6 +291,7 @@ public:
     //! Returns a Frustum object in world space
     Frustum getFrustum() const noexcept;
 
+    //! Returns the entity representing this camera
     utils::Entity getEntity() const noexcept;
 
     /** Sets this camera's exposure (default is 16, 1/125s, 100 ISO)
@@ -308,7 +309,7 @@ public:
      *                      between 1/8000 and 30.
      *
      * @param sensitivity   Sensitivity in ISO, clamped between 10 and 204,800.
-     *                      A higher \p sensitivity increases the exposure. Realistice values are
+     *                      A higher \p sensitivity increases the exposure. Realistic values are
      *                      between 50 and 25600.
      *
      * @note

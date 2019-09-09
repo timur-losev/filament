@@ -17,15 +17,19 @@
 #ifndef TNT_FILAMENT_DETAILS_FROXEL_H
 #define TNT_FILAMENT_DETAILS_FROXEL_H
 
+#include "UniformBuffer.h"
+
 #include "details/Allocators.h"
 #include "details/Scene.h"
 #include "details/Engine.h"
 
-#include "driver/Handle.h"
-#include "driver/GPUBuffer.h"
-#include "driver/UniformBuffer.h"
+#include <backend/Handle.h>
+
+#include "GPUBuffer.h"
 
 #include <filament/Viewport.h>
+
+#include <private/filament/UibGenerator.h>
 
 #include <utils/compiler.h>
 #include <utils/bitset.h>
@@ -88,7 +92,7 @@ public:
     explicit Froxelizer(FEngine& engine);
     ~Froxelizer();
 
-    void terminate(driver::DriverApi& driverApi) noexcept;
+    void terminate(backend::DriverApi& driverApi) noexcept;
 
     // gpu buffer containing records. valid after construction.
     GPUBuffer const& getRecordBuffer() const noexcept { return mRecordsBuffer; }
@@ -110,7 +114,7 @@ public:
      *
      * return true if updateUniforms() needs to be called
      */
-    bool prepare(driver::DriverApi& driverApi, ArenaScope& arena, Viewport const& viewport,
+    bool prepare(backend::DriverApi& driverApi, ArenaScope& arena, Viewport const& viewport,
             const math::mat4f& projection, float projectionNear, float projectionFar) noexcept;
 
     Froxel getFroxelAt(size_t x, size_t y, size_t z) const noexcept;
@@ -124,15 +128,15 @@ public:
             const FScene::LightSoa& lightData) noexcept;
 
     void updateUniforms(UniformBuffer& u) {
-        u.setUniform(offsetof(FEngine::PerViewUib, zParams), mParamsZ);
-        u.setUniform(offsetof(FEngine::PerViewUib, fParams), mParamsF.yz);
-        u.setUniform(offsetof(FEngine::PerViewUib, fParamsX), mParamsF.x);
-        u.setUniform(offsetof(FEngine::PerViewUib, oneOverFroxelDimensionX), mOneOverDimension.x);
-        u.setUniform(offsetof(FEngine::PerViewUib, oneOverFroxelDimensionY), mOneOverDimension.y);
+        u.setUniform(offsetof(PerViewUib, zParams), mParamsZ);
+        u.setUniform(offsetof(PerViewUib, fParams), mParamsF.yz);
+        u.setUniform(offsetof(PerViewUib, fParamsX), mParamsF.x);
+        u.setUniform(offsetof(PerViewUib, oneOverFroxelDimensionX), mOneOverDimension.x);
+        u.setUniform(offsetof(PerViewUib, oneOverFroxelDimensionY), mOneOverDimension.y);
     }
 
     // send froxel data to GPU
-    void commit(driver::DriverApi& driverApi);
+    void commit(backend::DriverApi& driverApi);
 
 
     /*
@@ -141,11 +145,11 @@ public:
 
     struct FroxelEntry {
         union {
-            uint32_t u32;
+            uint32_t u32 = 0;
             struct {
-                uint16_t offset = 0;
+                uint16_t offset;
                 union {
-                    uint8_t count[2] = { 0, 0 };
+                    uint8_t count[2];
                     struct {
                         uint8_t pointLightCount;
                         uint8_t spotLightCount;

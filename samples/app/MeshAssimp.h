@@ -26,9 +26,11 @@ namespace filament {
     class Renderable;
 }
 
+#include <unordered_map>
 #include <map>
 #include <vector>
 
+#include <math/mat3.h>
 #include <math/mat4.h>
 #include <math/quat.h>
 #include <math/vec3.h>
@@ -39,13 +41,18 @@ namespace filament {
 #include <filamat/MaterialBuilder.h>
 #include <filament/Color.h>
 #include <filament/Box.h>
+#include <filament/Texture.h>
+#include <filament/TextureSampler.h>
+#include <filament/TransformManager.h>
+#include <assimp/scene.h>
 
 class MeshAssimp {
 public:
-    using mat4f = math::mat4f;
-    using half4 = math::half4;
-    using short4 = math::short4;
-    using half2 = math::half2;
+    using mat4f = filament::math::mat4f;
+    using half4 = filament::math::half4;
+    using short4 = filament::math::short4;
+    using half2 = filament::math::half2;
+    using ushort2 = filament::math::ushort2;
     explicit MeshAssimp(filament::Engine& engine);
     ~MeshAssimp();
 
@@ -56,6 +63,11 @@ public:
     const std::vector<utils::Entity> getRenderables() const noexcept {
         return mRenderables;
     }
+
+    //For use with normalizing coordinates
+    filament::math::float3 minBound = filament::math::float3(1.0f);
+    filament::math::float3 maxBound = filament::math::float3(-1.0f);
+    utils::Entity rootEntity;
 
 private:
     struct Part {
@@ -75,16 +87,40 @@ private:
         std::vector<Part> parts;
         filament::Box aabb;
         mat4f transform;
+        mat4f accTransform;
     };
 
-    bool setFromFile(const utils::Path& file,
-            std::vector<uint32_t>& outIndices,
-            std::vector<half4>&    outPositions,
-            std::vector<short4>&   outTangents,
-            std::vector<half2>&    outTexCoords,
-            std::vector<Mesh>&     outMeshes,
-            std::vector<int>&      outParents);
+    struct Asset {
+        utils::Path file;
+        std::vector<uint32_t> indices;
+        std::vector<half4> positions;
+        std::vector<short4> tangents;
+        std::vector<ushort2> texCoords0;
+        std::vector<ushort2> texCoords1;
+        bool snormUV0;
+        bool snormUV1;
+        std::vector<Mesh> meshes;
+        std::vector<int> parents;
+    };
 
+    bool setFromFile(Asset& asset, std::map<std::string, filament::MaterialInstance*>& outMaterials);
+
+    void processGLTFMaterial(const aiScene* scene, const aiMaterial* material,
+            const std::string& materialName, const std::string& dirName,
+            std::map<std::string, filament::MaterialInstance*>& outMaterials) const;
+
+    template<bool SNORMUV0S, bool SNORMUV1S>
+    void processNode(Asset& asset,
+                     std::map<std::string, filament::MaterialInstance*>& outMaterials,
+                     const aiScene *scene,
+                     bool isGLTF,
+                     size_t deep,
+                     size_t matCount,
+                     const aiNode *node,
+                     int parentIndex,
+                     size_t &depth) const;
+
+    filament::Texture* createOneByOneTexture(uint32_t textureData);
     filament::Engine& mEngine;
     filament::VertexBuffer* mVertexBuffer = nullptr;
     filament::IndexBuffer* mIndexBuffer = nullptr;
@@ -92,7 +128,18 @@ private:
     filament::Material* mDefaultColorMaterial = nullptr;
     filament::Material* mDefaultTransparentColorMaterial = nullptr;
 
+    mutable std::unordered_map<uint64_t, filament::Material*> mGltfMaterialCache;
+    filament::Texture* mDefaultMap = nullptr;
+    filament::Texture* mDefaultNormalMap = nullptr;
+    float mDefaultMetallic = 0.0;
+    float mDefaultRoughness = 0.4;
+    filament::sRGBColor mDefaultEmissive = filament::sRGBColor({0.0f, 0.0f, 0.0f});
+
     std::vector<utils::Entity> mRenderables;
+
+    std::vector<filament::Texture*> mTextures;
+
+
 };
 
 #endif // TNT_FILAMENT_SAMPLE_MESH_ASSIMP_H

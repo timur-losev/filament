@@ -128,7 +128,11 @@ public class Stream {
         }
     }
 
-    long getNativeObject() {
+    public long getTimestamp() {
+        return nGetTimestamp(getNativeObject());
+    }
+
+    public long getNativeObject() {
         if (mNativeObject == 0) {
             throw new IllegalStateException("Calling method on destroyed Stream");
         }
@@ -153,6 +157,7 @@ public class Stream {
             Buffer storage, int remaining,
             int left, int top, int type, int alignment, int stride, int format,
             Object handler, Runnable callback);
+    private static native long nGetTimestamp(long nativeStream);
 
     private static native boolean nIsNative(long nativeStream);
 }

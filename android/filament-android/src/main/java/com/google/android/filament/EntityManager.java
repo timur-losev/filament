@@ -19,6 +19,8 @@ package com.google.android.filament;
 import android.support.annotation.IntRange;
 import android.support.annotation.NonNull;
 
+import com.google.android.filament.proguard.UsedByReflection;
+
 public class EntityManager {
     private long mNativeObject = nGetEntityManager();
 
@@ -64,6 +66,11 @@ public class EntityManager {
 
     public boolean isAlive(@Entity int entity) {
         return nIsAlive(mNativeObject, entity);
+    }
+
+    @UsedByReflection("AssetLoader.java")
+    public long getNativeObject() {
+        return mNativeObject;
     }
 
     private static native long nGetEntityManager();

@@ -19,9 +19,10 @@
 
 #include "upcast.h"
 
-#include "driver/Handle.h"
+#include <backend/Handle.h>
 
 #include <filament/IndirectLight.h>
+#include <filament/Texture.h>
 
 #include <utils/compiler.h>
 
@@ -40,20 +41,24 @@ public:
 
     void terminate(FEngine& engine);
 
-    Handle<HwTexture> getReflectionMap() const noexcept { return mReflectionsMapHandle; }
-    Handle<HwTexture> getIrradianceMap() const noexcept { return mIrradianceMapHandle; }
+    backend::Handle<backend::HwTexture> getReflectionMap() const noexcept { return mReflectionsMapHandle; }
+    backend::Handle<backend::HwTexture> getIrradianceMap() const noexcept { return mIrradianceMapHandle; }
     math::float3 const* getSH() const noexcept{ return mIrradianceCoefs.data(); }
     float getIntensity() const noexcept { return mIntensity; }
     void setIntensity(float intensity) noexcept { mIntensity = intensity; }
     void setRotation(math::mat3f const& rotation) noexcept { mRotation = rotation; }
-    const math::mat3f& getRotation() const { return mRotation; }
+    const math::mat3f& getRotation() const noexcept { return mRotation; }
+    size_t getMaxMipLevel() const noexcept { return mMaxMipLevel; }
+    math::float3 getDirectionEstimate() const noexcept;
+    math::float4 getColorEstimate(math::float3 direction) const noexcept;
 
 private:
-    Handle<HwTexture> mReflectionsMapHandle;
-    Handle<HwTexture> mIrradianceMapHandle;
+    backend::Handle<backend::HwTexture> mReflectionsMapHandle;
+    backend::Handle<backend::HwTexture> mIrradianceMapHandle;
     std::array<math::float3, 9> mIrradianceCoefs;
     float mIntensity = DEFAULT_INTENSITY;
     math::mat3f mRotation;
+    uint8_t mMaxMipLevel = 0;
 };
 
 FILAMENT_UPCAST(IndirectLight)

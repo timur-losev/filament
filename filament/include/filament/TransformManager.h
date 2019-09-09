@@ -25,7 +25,13 @@
 
 #include <math/mat4.h>
 
+#include <iterator>
+
 namespace filament {
+
+namespace details {
+class FTransformManager;
+} // namespace details
 
 /**
  * TransformManager is used to add transform components to entities.
@@ -51,7 +57,7 @@ namespace filament {
  *
  *  // set its transform
  *  auto i = tcm.getInstance(object);
- *  tcm.setTransform(i, mat4f::translate({ 0, 0, -1 }));
+ *  tcm.setTransform(i, mat4f::translation({ 0, 0, -1 }));
  *
  *  // destroy the transform component
  *  tcm.destroy(object);
@@ -61,6 +67,32 @@ namespace filament {
 class UTILS_PUBLIC TransformManager : public FilamentAPI {
 public:
     using Instance = utils::EntityInstance<TransformManager>;
+
+    class children_iterator : std::iterator<std::forward_iterator_tag, Instance> {
+        friend class details::FTransformManager;
+        TransformManager const& mManager;
+        Instance mInstance;
+        children_iterator(TransformManager const& mgr, Instance instance) noexcept
+                : mManager(mgr), mInstance(instance) { }
+    public:
+        children_iterator& operator++();
+
+        children_iterator operator++(int) { // NOLINT
+            children_iterator ret(*this);
+            ++(*this);
+            return ret;
+        }
+
+        bool operator == (const children_iterator& other) const noexcept {
+            return mInstance == other.mInstance;
+        }
+
+        bool operator != (const children_iterator& other) const noexcept {
+            return mInstance != other.mInstance;
+        }
+
+        value_type operator*() const { return mInstance; }
+    };
 
     /**
      * Returns whether a particular Entity is associated with a component of this TransformManager
@@ -97,15 +129,15 @@ public:
      * @param e An entity.
      *
      * @note If this transform had children, these are orphaned, which means their local
-     * transform becomes a world transform. Usually it's not sensical. It's recomanded to make
-     * sure that a destroyed transform doesn't have have children.
+     * transform becomes a world transform. Usually it's nonsensical. It's recommended to make
+     * sure that a destroyed transform doesn't have children.
      *
      * @see create()
      */
     void destroy(utils::Entity e) noexcept;
 
     /**
-     * Re-parent an entity to a new one.
+     * Re-parents an entity to a new one.
      * @param i             The instance of the transform component to re-parent
      * @param newParent     The instance of the new parent transform
      * @attention It is an error to re-parent an entity to a descendant and will cause undefined behaviour.
@@ -114,7 +146,50 @@ public:
     void setParent(Instance i, Instance newParent) noexcept;
 
     /**
-     * Set a local transform of a transform component.
+     * Returns the parent of a transform component, or the null entity if it is a root.
+     * @param i The instance of the transform component to query.
+     */
+    utils::Entity getParent(Instance i) const noexcept;
+
+    /**
+     * Returns the number of children of a transform component.
+     * @param i The instance of the transform component to query.
+     * @return The number of children of the queried component.
+     */
+    size_t getChildCount(Instance i) const noexcept;
+
+    /**
+     * Gets a list of children for a transform component.
+     *
+     * @param i The instance of the transform component to query.
+     * @param children Pointer to array-of-Entity. The array must have at least "count" elements.
+     * @param count The maximum number of children to retrieve.
+     * @return The number of children written to the pointer.
+     */
+    size_t getChildren(Instance i, utils::Entity* children, size_t count) const noexcept;
+
+    /**
+     * Returns an iterator to the Instance of the first child of the given parent.
+     *
+     * @param parent Instance of the parent
+     * @return A forward iterator pointing to the first child of the given parent.
+     *
+     * A child_iterator can only safely be dereferenced if it's different from getChildrenEnd(parent)
+     */
+    children_iterator getChildrenBegin(Instance parent) const noexcept;
+
+    /**
+     * Returns an undreferencable iterator representing the end of the children list
+     *
+     * @param parent Instance of the parent
+     * @return A forward iterator.
+     *
+     * This iterator cannot be dereferenced
+     */
+    children_iterator getChildrenEnd(Instance parent) const noexcept;
+
+    /**
+     * Sets a local transform of a transform component.
      * @param ci              The instance of the transform component to set the local transform to.
      * @param localTransform  The local transform (i.e. relative to the parent).
      * @see getTransform()
@@ -173,5 +248,6 @@ public:
 };
 
 } // namespace filament
+
 
 #endif // TNT_TRANSFORMMANAGER_H

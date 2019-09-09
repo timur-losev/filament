@@ -116,7 +116,7 @@ TEST(JobSystem, WorkStealingDequeue_PopSteal) {
     steal_thread3.join();
     pop_thread.join();
 
-    EXPECT_TRUE(queue.isEmpty());
+    EXPECT_TRUE(queue.getCount() == 0);
 }
 
 TEST(JobSystem, WorkStealingDequeue_PushPopSteal) {
@@ -185,7 +185,7 @@ TEST(JobSystem, WorkStealingDequeue_PushPopSteal) {
     push_pop_thread.join();
 
     EXPECT_EQ(pop+steal0+steal1+steal2+steal3, size);
-    EXPECT_TRUE(queue.isEmpty());
+    EXPECT_TRUE(queue.getCount() == 0);
 }
 
 
@@ -208,7 +208,7 @@ TEST(JobSystem, JobSystemParallelChildren) {
     JobSystem::Job* root = js.createJob<User, &User::func>(nullptr, &j);
     for (int i=0 ; i<256 ; i++) {
         JobSystem::Job* job = js.createJob<User, &User::func>(root, &j);
-        js.run(job);
+        js.run(job, JobSystem::DONT_SIGNAL);
     }
     js.runAndWait(root);
 
@@ -228,12 +228,12 @@ TEST(JobSystem, JobSystemSequentialChildren) {
         int i, j;
         void func(JobSystem& js, JobSystem::Job* job) {
             if (c < 43) {
-                JobSystem::Job* p = js.createJob<User, &User::func>(job, User{ c + 1 });
+                User u{ c + 1 };
+                JobSystem::Job* p = js.createJob<User, &User::func>(job, &u);
                 js.runAndWait(p);
 
-                User* u = (User *)p->getData();
-                i = u->i + u->j;
-                j = u->i;
+                i = u.i + u.j;
+                j = u.i;
             } else {
                 i = 0;
                 j = 1;
@@ -241,12 +241,13 @@ TEST(JobSystem, JobSystemSequentialChildren) {
         }
     };
 
-    JobSystem::Job* root = js.createJob<User, &User::func>(nullptr, User{ 0 });
+    User u{0};
+
+    JobSystem::Job* root = js.createJob<User, &User::func>(nullptr, &u);
     js.runAndWait(root);
-    User* u = (User *)root->getData();
 
     // 43rd fibonacci number
-    EXPECT_EQ(433494437, u->i);
+    EXPECT_EQ(433494437, u.i);
 
     js.emancipate();
 }
@@ -256,28 +257,28 @@ TEST(JobSystem, JobSystemParallelFor) {
     JobSystem js;
     js.adopt();
 
-    std::array<math::float3, 4096*16> vertices;
+    std::array<filament::math::float3, 4096*16> vertices;
     for (size_t j = 0; j<vertices.size(); ++j) {
-        vertices[j] = math::float3(j);
+        vertices[j] = filament::math::float3(j);
     }
 
     struct Executor {
-        void operator()(math::float3* v, size_t c) {
+        void operator()(filament::math::float3* v, size_t c) {
             for (size_t i=0 ; i<c; ++i) {
                 v[i] = matrix * v[i];
             }
         }
-        math::mat3f matrix;
+        filament::math::mat3f matrix;
     } state;
-    state.matrix = math::mat3f(2);
+    state.matrix = filament::math::mat3f(2);
 
     JobSystem::Job* job = parallel_for(js, nullptr, vertices.data(), vertices.size(),
             std::ref(state), CountSplitter<4>());
     js.runAndWait(job);
 
-    const math::mat3f matrix(2);
+    const filament::math::mat3f matrix(2);
     for (size_t j = 0; j<vertices.size(); ++j) {
-        EXPECT_TRUE(vertices[j] == matrix*math::float3(j));
+        EXPECT_TRUE(vertices[j] == matrix*filament::math::float3(j));
     }
 
     js.emancipate();
@@ -334,7 +335,7 @@ TEST(JobSystem, JobSystemDelegates) {
     EXPECT_EQ(3, functor.result);
 
     size_t a=0,b=0,c=0,d=0,e=0;
-    job = js.createJob(nullptr, [&functor, a,b,c,d,e](JobSystem&, JobSystem::Job*){
+    job = js.createJob(nullptr, [&functor, a,b,c](JobSystem&, JobSystem::Job*){
         functor.result = 4;
     });
     js.runAndWait(job);

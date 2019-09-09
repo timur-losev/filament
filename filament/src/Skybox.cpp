@@ -20,37 +20,27 @@
 #include "details/Texture.h"
 #include "details/VertexBuffer.h"
 #include "details/IndexBuffer.h"
+#include "details/IndirectLight.h"
 #include "details/Material.h"
 #include "details/MaterialInstance.h"
 
 #include "FilamentAPI-impl.h"
 
 #include <filament/MaterialInstance.h>
-#include <filament/driver/DriverEnums.h>
+#include <backend/DriverEnums.h>
 
 #include <utils/Panic.h>
 
-using namespace math;
+#include "generated/resources/materials.h"
+
+using namespace filament::math;
 namespace filament {
 
 using namespace details;
 
-// TODO: Merge the two skybox Material into one.
-// This package is generated with matc and contains skybox material shader
-// code.
-static const uint8_t SKYBOX_MATERIAL_PACKAGE[] = {
-#include "generated/material/skybox.inc"
-};
-
-// This package is generated with matc and contains skybox material shader
-// code.
-static const uint8_t SKYBOXRGBM_MATERIAL_PACKAGE[] = {
-#include "generated/material/skyboxRGBM.inc"
-};
-
-
 struct Skybox::BuilderDetails {
     Texture* mEnvironmentMap = nullptr;
+    float mIntensity = FIndirectLight::DEFAULT_INTENSITY;
     bool mShowSun = false;
 };
 
@@ -65,6 +55,11 @@ BuilderType::Builder& BuilderType::Builder::operator=(BuilderType::Builder&& rhs
 
 Skybox::Builder& Skybox::Builder::environment(Texture* cubemap) noexcept {
     mImpl->mEnvironmentMap = cubemap;
+    return *this;
+}
+
+Skybox::Builder& Skybox::Builder::intensity(float envIntensity) noexcept {
+    mImpl->mIntensity = envIntensity;
     return *this;
 }
 
@@ -93,9 +88,10 @@ namespace details {
 
 FSkybox::FSkybox(FEngine& engine, const Builder& builder) noexcept
         : mSkyboxTexture(upcast(builder->mEnvironmentMap)),
-          mRenderableManager(engine.getRenderableManager()) {
+          mRenderableManager(engine.getRenderableManager()),
+          mIntensity(builder->mIntensity) {
 
-    FMaterial const* material = engine.getSkyboxMaterial(mSkyboxTexture->getFormat());
+    FMaterial const* material = engine.getSkyboxMaterial();
     mSkyboxMaterialInstance = material->createInstance();
 
     TextureSampler sampler(TextureSampler::MagFilter::LINEAR, TextureSampler::WrapMode::REPEAT);
@@ -116,17 +112,9 @@ FSkybox::FSkybox(FEngine& engine, const Builder& builder) noexcept
             .build(engine, mSkybox);
 }
 
-FMaterial const* FSkybox::createMaterial(FEngine& engine, driver::TextureFormat format) {
-   if (format == driver::TextureFormat::RGBM) {
-       FMaterial const* material = upcast(Material::Builder().package(
-               (void*)SKYBOXRGBM_MATERIAL_PACKAGE,
-               sizeof(SKYBOXRGBM_MATERIAL_PACKAGE)).build(engine));
-       return material;
-   }
-
+FMaterial const* FSkybox::createMaterial(FEngine& engine) {
     FMaterial const* material = upcast(Material::Builder().package(
-            (void*)SKYBOX_MATERIAL_PACKAGE,
-            sizeof(SKYBOX_MATERIAL_PACKAGE)).build(engine));
+            MATERIALS_SKYBOX_DATA, MATERIALS_SKYBOX_SIZE).build(engine));
     return material;
 }
 
@@ -163,6 +151,10 @@ void Skybox::setLayerMask(uint8_t select, uint8_t values) noexcept {
 
 uint8_t Skybox::getLayerMask() const noexcept {
     return upcast(this)->getLayerMask();
+}
+
+float Skybox::getIntensity() const noexcept {
+    return upcast(this)->getIntensity();
 }
 
 } // namespace filament

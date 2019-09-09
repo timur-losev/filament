@@ -28,6 +28,11 @@ mat4 getClipFromWorldMatrix() {
 }
 
 /** @public-api */
+mat4 getWorldFromClipMatrix() {
+    return frameUniforms.worldFromClipMatrix;
+}
+
+/** @public-api */
 vec4 getResolution() {
     return frameUniforms.resolution;
 }
@@ -38,8 +43,23 @@ vec3 getWorldCameraPosition() {
 }
 
 /** @public-api */
+highp vec3 getWorldOffset() {
+    return frameUniforms.worldOffset;
+}
+
+/** @public-api */
 float getTime() {
     return frameUniforms.time;
+}
+
+/** @public-api */
+highp vec4 getUserTime() {
+    return frameUniforms.userTime;
+}
+
+/** @public-api **/
+highp float getUserTimeMod(float m) {
+    return mod(mod(frameUniforms.userTime.x, m) + mod(frameUniforms.userTime.y, m), m);
 }
 
 /** @public-api */

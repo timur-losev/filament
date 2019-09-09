@@ -25,112 +25,123 @@
 
 #include <filamat/MaterialBuilder.h>
 
-#include <filament/driver/DriverEnums.h>
-#include <filament/EngineEnums.h>
+#include <backend/DriverEnums.h>
+#include <private/filament/EngineEnums.h>
 #include <filament/MaterialEnums.h>
-#include <filament/SamplerInterfaceBlock.h>
-#include <filament/UniformInterfaceBlock.h>
+#include <private/filament/SamplerInterfaceBlock.h>
+#include <private/filament/UniformInterfaceBlock.h>
+
+#include <utils/sstream.h>
 
 #include <private/filament/Variant.h>
 
 namespace filamat {
 
 class UTILS_PRIVATE CodeGenerator {
-    using ShaderType = filament::driver::ShaderType;
+    using ShaderType = filament::backend::ShaderType;
     using TargetApi = MaterialBuilder::TargetApi;
+    using TargetLanguage = MaterialBuilder::TargetLanguage;
 public:
-    CodeGenerator(filament::driver::ShaderModel shaderModel,
-            TargetApi targetApi, TargetApi codeGenTargetApi) noexcept
-            : mShaderModel(shaderModel), mTargetApi(targetApi), mCodeGenTargetApi(codeGenTargetApi) {
+    CodeGenerator(filament::backend::ShaderModel shaderModel,
+            TargetApi targetApi, TargetLanguage targetLanguage) noexcept
+            : mShaderModel(shaderModel), mTargetApi(targetApi), mTargetLanguage(targetLanguage) {
         if (targetApi == TargetApi::ALL) {
             utils::slog.e << "Must resolve target API before codegen." << utils::io::endl;
             std::terminate();
         }
     }
 
-    filament::driver::ShaderModel getShaderModel() const noexcept { return mShaderModel; }
+    filament::backend::ShaderModel getShaderModel() const noexcept { return mShaderModel; }
 
     // insert a separator (can be a new line)
-    std::ostream& generateSeparator(std::ostream& out) const;
+    utils::io::sstream& generateSeparator(utils::io::sstream& out) const;
 
     // generate prolog for the given shader
-    std::ostream& generateProlog(std::ostream& out, ShaderType type, bool hasExternalSamplers) const;
+    utils::io::sstream& generateProlog(utils::io::sstream& out, ShaderType type, bool hasExternalSamplers) const;
 
-    std::ostream& generateEpilog(std::ostream& out) const;
+    utils::io::sstream& generateEpilog(utils::io::sstream& out) const;
 
     // generate common functions for the given shader
-    std::ostream& generateCommon(std::ostream& out, ShaderType type) const;
-    std::ostream& generateCommonMaterial(std::ostream& out, ShaderType type) const;
+    utils::io::sstream& generateCommon(utils::io::sstream& out, ShaderType type) const;
+    utils::io::sstream& generateCommonMaterial(utils::io::sstream& out, ShaderType type) const;
 
     // generate the shader's main()
-    std::ostream& generateShaderMain(std::ostream& out, ShaderType type) const;
-    std::ostream& generatePostProcessMain(std::ostream& out, ShaderType type,
+    utils::io::sstream& generateShaderMain(utils::io::sstream& out, ShaderType type) const;
+    utils::io::sstream& generatePostProcessMainOld(utils::io::sstream& out, ShaderType type,
             filament::PostProcessStage variant) const;
+    utils::io::sstream& generatePostProcessMain(utils::io::sstream& out, ShaderType type) const;
 
     // generate the shader's code for the lit shading model
-    std::ostream& generateShaderLit(std::ostream& out, ShaderType type,
+    utils::io::sstream& generateShaderLit(utils::io::sstream& out, ShaderType type,
             filament::Variant variant, filament::Shading shading) const;
 
     // generate the shader's code for the unlit shading model
-    std::ostream& generateShaderUnlit(std::ostream& out, ShaderType type,
+    utils::io::sstream& generateShaderUnlit(utils::io::sstream& out, ShaderType type,
             filament::Variant variant, bool hasShadowMultiplier) const;
 
-    // generate in/out variable
-    std::ostream& generateVariable(std::ostream& out, ShaderType type,
+    // generate declarations for custom interpolants
+    utils::io::sstream& generateVariable(utils::io::sstream& out, ShaderType type,
             const utils::CString& name, size_t index) const;
 
-    // generate in/out variables
-    std::ostream& generateVariables(std::ostream& out, ShaderType type,
+    // generate declarations for non-custom "in" variables
+    utils::io::sstream& generateShaderInputs(utils::io::sstream& out, ShaderType type,
         const filament::AttributeBitset& attributes, filament::Interpolation interpolation) const;
+    utils::io::sstream& generatePostProcessInputs(utils::io::sstream& out, ShaderType type) const;
 
     // generate no-op shader for depth prepass
-    std::ostream& generateDepthShaderMain(std::ostream& out, ShaderType type) const;
+    utils::io::sstream& generateDepthShaderMain(utils::io::sstream& out, ShaderType type) const;
 
     // generate uniforms
-    std::ostream& generateUniforms(std::ostream& out, ShaderType type, uint8_t binding,
+    utils::io::sstream& generateUniforms(utils::io::sstream& out, ShaderType type, uint8_t binding,
             const filament::UniformInterfaceBlock& uib) const;
 
     // generate samplers
-    std::ostream& generateSamplers(
-        std::ostream& out, uint8_t firstBinding, const filament::SamplerInterfaceBlock& sib) const;
+    utils::io::sstream& generateSamplers(
+        utils::io::sstream& out, uint8_t firstBinding, const filament::SamplerInterfaceBlock& sib) const;
 
     // generate material properties getters
-    std::ostream& generateMaterialProperty(std::ostream& out,
-            filament::Property property, bool isSet) const;
+    utils::io::sstream& generateMaterialProperty(utils::io::sstream& out,
+            MaterialBuilder::Property property, bool isSet) const;
 
-    std::ostream& generateFunction(std::ostream& out,
+    utils::io::sstream& generateFunction(utils::io::sstream& out,
             const char* returnType, const char* name, const char* body) const;
 
-    std::ostream& generateDefine(std::ostream& out, const char* name, bool value) const;
-    std::ostream& generateDefine(std::ostream& out, const char* name, float value) const;
-    std::ostream& generateDefine(std::ostream& out, const char* name, uint32_t value) const;
-    std::ostream& generateDefine(std::ostream& out, const char* name, const char* string) const;
+    utils::io::sstream& generateDefine(utils::io::sstream& out, const char* name, bool value) const;
+    utils::io::sstream& generateDefine(utils::io::sstream& out, const char* name, float value) const;
+    utils::io::sstream& generateDefine(utils::io::sstream& out, const char* name, uint32_t value) const;
+    utils::io::sstream& generateDefine(utils::io::sstream& out, const char* name, const char* string) const;
+    utils::io::sstream& generateIndexedDefine(utils::io::sstream& out, const char* name,
+            uint32_t index, uint32_t value) const;
 
-    std::ostream& generateGetters(std::ostream& out, ShaderType type) const;
-    std::ostream& generateParameters(std::ostream& out, ShaderType type) const;
+    utils::io::sstream& generatePostProcessGetters(utils::io::sstream& out, ShaderType type) const;
+    utils::io::sstream& generateGetters(utils::io::sstream& out, ShaderType type) const;
+    utils::io::sstream& generateParameters(utils::io::sstream& out, ShaderType type) const;
+
+    static void fixupExternalSamplers(
+            std::string& shader, filament::SamplerInterfaceBlock const& sib) noexcept;
 
 private:
-    filament::driver::Precision getDefaultPrecision(ShaderType type) const;
-    filament::driver::Precision getDefaultUniformPrecision() const;
+    filament::backend::Precision getDefaultPrecision(ShaderType type) const;
+    filament::backend::Precision getDefaultUniformPrecision() const;
 
-    const char* getUniformPrecisionQualifier(filament::driver::UniformType type,
-            filament::driver::Precision precision,
-            filament::driver::Precision uniformPrecision,
-            filament::driver::Precision defaultPrecision) const noexcept;
+    const char* getUniformPrecisionQualifier(filament::backend::UniformType type,
+            filament::backend::Precision precision,
+            filament::backend::Precision uniformPrecision,
+            filament::backend::Precision defaultPrecision) const noexcept;
 
     // return type name of sampler  (e.g.: "sampler2D")
-    char const* getSamplerTypeName(filament::driver::SamplerType type,
-            filament::driver::SamplerFormat format, bool multisample) const noexcept;
+    char const* getSamplerTypeName(filament::backend::SamplerType type,
+            filament::backend::SamplerFormat format, bool multisample) const noexcept;
 
     // return name of the material property (e.g.: "ROUGHNESS")
-    static char const* getConstantName(filament::Property property) noexcept;
+    static char const* getConstantName(MaterialBuilder::Property property) noexcept;
 
-    static char const* getPrecisionQualifier(filament::driver::Precision precision,
-            filament::driver::Precision defaultPrecision) noexcept;
+    static char const* getPrecisionQualifier(filament::backend::Precision precision,
+            filament::backend::Precision defaultPrecision) noexcept;
 
-    filament::driver::ShaderModel mShaderModel;
+    filament::backend::ShaderModel mShaderModel;
     TargetApi mTargetApi;
-    TargetApi mCodeGenTargetApi;
+    TargetLanguage mTargetLanguage;
 
     // return type name of uniform  (e.g.: "vec3", "vec4", "float")
     static char const* getUniformTypeName(filament::UniformInterfaceBlock::Type uniformType) noexcept;

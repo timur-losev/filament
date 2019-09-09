@@ -34,6 +34,8 @@
 #include <cmath>
 #include <stdint.h>
 
+#include "generated/resources/resources.h"
+
 using namespace filament;
 using utils::Entity;
 using utils::EntityManager;
@@ -52,8 +54,8 @@ struct App {
 };
 
 struct Vertex {
-    math::float2 position;
-    math::float2 uv;
+    filament::math::float2 position;
+    filament::math::float2 uv;
 };
 
 static const Vertex QUAD_VERTICES[4] = {
@@ -68,11 +70,7 @@ static constexpr uint16_t QUAD_INDICES[6] = {
     3, 2, 1,
 };
 
-static constexpr uint8_t BAKED_TEXTURE_PACKAGE[] = {
-    #include "generated/material/bakedTexture.inc"
-};
-
-int main() {
+int main(int argc, char** argv) {
     Config config;
     config.title = "texturedquad";
     config.backend = Engine::Backend::VULKAN;
@@ -81,7 +79,7 @@ int main() {
     auto setup = [&app](Engine* engine, View* view, Scene* scene) {
 
         // Load texture
-        Path path = FilamentApp::getRootPath() + "third_party/textures/Moss_01/Moss_01_Color.png";
+        Path path = FilamentApp::getRootPath() + "textures/Moss_01/Moss_01_Color.png";
         if (!path.exists()) {
             std::cerr << "The texture " << path << " does not exist" << std::endl;
             exit(1);
@@ -95,13 +93,13 @@ int main() {
         std::cout << "Loaded texture: " << w << "x" << h << std::endl;
         Texture::PixelBufferDescriptor buffer(data, size_t(w * h * 4),
                 Texture::Format::RGBA, Texture::Type::UBYTE,
-                (driver::BufferDescriptor::Callback) &stbi_image_free);
+                (Texture::PixelBufferDescriptor::Callback) &stbi_image_free);
         app.tex = Texture::Builder()
                 .width(uint32_t(w))
                 .height(uint32_t(h))
                 .levels(1)
                 .sampler(Texture::Sampler::SAMPLER_2D)
-                .format(driver::TextureFormat::RGBA8)
+                .format(Texture::InternalFormat::RGBA8)
                 .build(*engine);
                 app.tex->setImage(*engine, 0, std::move(buffer));
         TextureSampler sampler(MinFilter::LINEAR, MagFilter::LINEAR);
@@ -129,7 +127,7 @@ int main() {
         app.ib->setBuffer(*engine,
                 IndexBuffer::BufferDescriptor(QUAD_INDICES, 12, nullptr));
         app.mat = Material::Builder()
-                .package((void*) BAKED_TEXTURE_PACKAGE, sizeof(BAKED_TEXTURE_PACKAGE))
+                .package(RESOURCES_BAKEDTEXTURE_DATA, RESOURCES_BAKEDTEXTURE_SIZE)
                 .build(*engine);
         app.matInstance = app.mat->createInstance();
         app.matInstance->setParameter("albedo", app.tex, sampler);
@@ -167,4 +165,6 @@ int main() {
     });
 
     FilamentApp::get().run(config, setup, cleanup);
+
+    return 0;
 }

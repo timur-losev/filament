@@ -18,15 +18,15 @@
 
 namespace filaflat {
 
-bool Unflattener::read(std::string* s) noexcept {
+bool Unflattener::read(utils::CString* s) noexcept {
     const uint8_t* start = mCursor;
     while (mCursor < mEnd && *mCursor != '\0') {
         mCursor++;
     }
     bool overflowed = mCursor >= mEnd;
     if (!overflowed) {
+        *s = utils::CString{ (const char*)start, (utils::CString::size_type)(mCursor - start) };
         mCursor++;
-        *s = std::string(start, mCursor);
     }
     return !overflowed;
 }
@@ -40,7 +40,7 @@ bool Unflattener::read(const char** blob, size_t* size) noexcept {
     mCursor += nbytes;
     bool overflowed = mCursor > mEnd;
     if (!overflowed) {
-        *blob = (const char*) start;
+        *blob = (const char*)start;
         *size = nbytes;
     }
     return !overflowed;
@@ -55,7 +55,7 @@ bool Unflattener::read(const char** s) noexcept {
     if (!overflowed) {
         mCursor++;
     }
-    *s = (char*) start;
+    *s = (char*)start;
     return !overflowed;
 }
 

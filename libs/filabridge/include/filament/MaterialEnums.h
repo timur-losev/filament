@@ -14,92 +14,144 @@
  * limitations under the License.
  */
 
+//! \file
+
 #ifndef TNT_FILAMENT_MATERIAL_ENUM_H
 #define TNT_FILAMENT_MATERIAL_ENUM_H
+
+#include <utils/bitset.h>
 
 #include <stddef.h>
 #include <stdint.h>
 
 namespace filament {
-    enum class Shading : uint8_t {
-        UNLIT,                  // no lighting applied, emissive possible
-        LIT,                    // default, standard lighting
-        SUBSURFACE,             // subsurface lighting model
-        CLOTH,                  // cloth lighting model
-    };
 
-    enum class Interpolation : uint8_t {
-        SMOOTH,                 // default, smooth interpolation
-        FLAT                    // flat interpolation
-    };
+static constexpr size_t MATERIAL_VERSION = 4;
 
-    static constexpr size_t MATERIAL_PROPERTIES_COUNT = 16;
-    enum class Property : uint8_t {
-        BASE_COLOR,              // float4, all shading models
-        ROUGHNESS,               // float,  lit shading models only
-        METALLIC,                // float,  all shading models, except unlit and cloth
-        REFLECTANCE,             // float,  all shading models, except unlit and cloth
-        AMBIENT_OCCLUSION,       // float,  lit shading models only, except subsurface and cloth
-        CLEAR_COAT,              // float,  lit shading models only, except subsurface and cloth
-        CLEAR_COAT_ROUGHNESS,    // float,  lit shading models only, except subsurface and cloth
-        CLEAR_COAT_NORMAL,       // float,  lit shading models only, except subsurface and cloth
-        ANISOTROPY,              // float,  lit shading models only, except subsurface and cloth
-        ANISOTROPY_DIRECTION,    // float3, lit shading models only, except subsurface and cloth
-        THICKNESS,               // float,  subsurface shading model only
-        SUBSURFACE_POWER,        // float,  subsurface shading model only
-        SUBSURFACE_COLOR,        // float3, subsurface and cloth shading models only
-        SHEEN_COLOR,             // float3, cloth shading model only
-        EMISSIVE,                // float4, all shading models
-        NORMAL,                  // float3, all shading models only, except unlit
-        // when adding new Properties, make sure to update MATERIAL_PROPERTIES_COUNT
-    };
+/**
+ * Supported shading models
+ */
+enum class Shading : uint8_t {
+    UNLIT,                  //!< no lighting applied, emissive possible
+    LIT,                    //!< default, standard lighting
+    SUBSURFACE,             //!< subsurface lighting model
+    CLOTH,                  //!< cloth lighting model
+    SPECULAR_GLOSSINESS,    //!< legacy lighting model
+};
 
-    enum class BlendingMode : uint8_t {
-        OPAQUE,                 // material is opaque
-        TRANSPARENT,            // material is transparent and color is alpha-pre-multiplied,
-                                // affects diffuse lighting only
-        ADD,                    // material is additive (e.g.: hologram)
-        MASKED,                 // material is masked (i.e. alpha tested)
-        FADE                    // material is transparent and color is alpha-pre-multiplied,
-                                // affects specular lighting
-        // when adding more entries, change the size of FRenderer::CommandKey::blending
-    };
+/**
+ * Attribute interpolation types in the fragment shader
+ */
+enum class Interpolation : uint8_t {
+    SMOOTH,                 //!< default, smooth interpolation
+    FLAT                    //!< flat interpolation
+};
 
-    enum class TransparencyMode : uint8_t {
-        DEFAULT,                // the transparent object is drawn honoring the raster state
-        TWO_PASSES_ONE_SIDE,    // the transparent object is first drawn in the depth buffer,
-                                // then in the color buffer, honoring the culling mode, but
-                                // ignoring the depth test function
-        TWO_PASSES_TWO_SIDES    // the transparent object is drawn twice in the color buffer,
-                                // first with back faces only, then with front faces; the culling
-                                // mode is ignored. Can be combined with two-sided lighting
-    };
+/**
+ * Supported blending modes
+ */
+enum class BlendingMode : uint8_t {
+    //! material is opaque
+    OPAQUE,
+    //! material is transparent and color is alpha-pre-multiplied, affects diffuse lighting only
+    TRANSPARENT,
+    //! material is additive (e.g.: hologram)
+    ADD,
+    //! material is masked (i.e. alpha tested)
+    MASKED,
+    /**
+     * material is transparent and color is alpha-pre-multiplied, affects specular lighting
+     * when adding more entries, change the size of FRenderer::CommandKey::blending
+     */
+    FADE,
+    //! material darkens what's behind it
+    MULTIPLY,
+    //! material brightens what's behind it
+    SCREEN,
+};
 
-    static constexpr size_t VERTEX_DOMAIN_COUNT = 4;
-    enum class VertexDomain : uint8_t {
-        OBJECT,                 // vertices are in object space, default
-        WORLD,                  // vertices are in world space
-        VIEW,                   // vertices are in view space
-        DEVICE                  // vertices are in normalized device space
-        // when adding more entries, make sure to update VERTEX_DOMAIN_COUNT
-    };
+/**
+ * How transparent objects are handled
+ */
+enum class TransparencyMode : uint8_t {
+    //! the transparent object is drawn honoring the raster state
+    DEFAULT,
+    /**
+     * the transparent object is first drawn in the depth buffer,
+     * then in the color buffer, honoring the culling mode, but ignoring the depth test function
+     */
+    TWO_PASSES_ONE_SIDE,
 
-    static constexpr size_t POST_PROCESS_STAGES_COUNT = 4;
-    enum class PostProcessStage : uint8_t {
-        TONE_MAPPING_OPAQUE,           // Tone mapping post-process
-        TONE_MAPPING_TRANSLUCENT,      // Tone mapping post-process
-        ANTI_ALIASING_OPAQUE,          // Anti-aliasing stage
-        ANTI_ALIASING_TRANSLUCENT,     // Anti-aliasing stage
-    };
+    /**
+     * the transparent object is drawn twice in the color buffer,
+     * first with back faces only, then with front faces; the culling
+     * mode is ignored. Can be combined with two-sided lighting
+     */
+    TWO_PASSES_TWO_SIDES
+};
 
-    static constexpr size_t MATERIAL_VARIABLES_COUNT = 4;
-    enum class Variable : uint8_t {
-        CUSTOM0,
-        CUSTOM1,
-        CUSTOM2,
-        CUSTOM3
-        // when adding more variables, make sure to update MATERIAL_VARIABLES_COUNT
-    };
-}
+/**
+ * Supported types of vertex domains.
+ */
+enum class VertexDomain : uint8_t {
+    OBJECT,                 //!< vertices are in object space, default
+    WORLD,                  //!< vertices are in world space
+    VIEW,                   //!< vertices are in view space
+    DEVICE                  //!< vertices are in normalized device space
+    // when adding more entries, make sure to update VERTEX_DOMAIN_COUNT
+};
+
+/**
+ * Vertex attribute types
+ */
+enum VertexAttribute : uint8_t {
+    // Update hasIntegerTarget() in VertexBuffer when adding an attribute that will
+    // be read as integers in the shaders
+
+    POSITION        = 0, //!< XYZ position (float3)
+    TANGENTS        = 1, //!< tangent, bitangent and normal, encoded as a quaternion (float4)
+    COLOR           = 2, //!< vertex color (float4)
+    UV0             = 3, //!< texture coordinates (float2)
+    UV1             = 4, //!< texture coordinates (float2)
+    BONE_INDICES    = 5, //!< indices of 4 bones, as unsigned integers (uvec4)
+    BONE_WEIGHTS    = 6, //!< weights of the 4 bones (normalized float4)
+    // -- we have 1 unused slot here --
+    CUSTOM0         = 8,
+    CUSTOM1         = 9,
+    CUSTOM2         = 10,
+    CUSTOM3         = 11,
+    CUSTOM4         = 12,
+    CUSTOM5         = 13,
+    CUSTOM6         = 14,
+    CUSTOM7         = 15,
+
+    // Aliases for vertex morphing.
+    MORPH_POSITION_0 = CUSTOM0,
+    MORPH_POSITION_1 = CUSTOM1,
+    MORPH_POSITION_2 = CUSTOM2,
+    MORPH_POSITION_3 = CUSTOM3,
+    MORPH_TANGENTS_0 = CUSTOM4,
+    MORPH_TANGENTS_1 = CUSTOM5,
+    MORPH_TANGENTS_2 = CUSTOM6,
+    MORPH_TANGENTS_3 = CUSTOM7,
+
+    // this is limited by driver::MAX_VERTEX_ATTRIBUTE_COUNT
+};
+
+static constexpr size_t MAX_CUSTOM_ATTRIBUTES = 8;
+
+/**
+ * Material domains
+ */
+enum MaterialDomain : uint8_t {
+    SURFACE         = 0, //!< shaders applied to renderables
+    POST_PROCESS    = 1, //!< shaders applied to rendered buffers
+};
+
+// can't really use std::underlying_type<AttributeIndex>::type because the driver takes a uint32_t
+using AttributeBitset = utils::bitset32;
+
+
+} // namespace filament
 
 #endif

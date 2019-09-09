@@ -19,6 +19,7 @@
 
 #include <image/LinearImage.h>
 
+#include <cstddef>
 #include <initializer_list>
 
 namespace image {
@@ -37,6 +38,7 @@ LinearImage verticalFlip(const LinearImage& image);
 
 // Transforms normals (components live in [-1,+1]) into colors (components live in [0,+1]).
 LinearImage vectorsToColors(const LinearImage& image);
+LinearImage colorsToVectors(const LinearImage& image);
 
 // Creates a single-channel image by extracting the selected channel.
 LinearImage extractChannel(const LinearImage& image, uint32_t channel);
@@ -55,6 +57,30 @@ LinearImage cropRegion(const LinearImage& image, uint32_t l, uint32_t t, uint32_
 // Lexicographically compares two images, similar to memcmp.
 int compare(const LinearImage& a, const LinearImage& b, float epsilon = 0.0f);
 
+// Sets all pixels in all channels to the given value.
+void clearToValue(LinearImage& img, float value);
+
+// Called by the coordinate field generator to query if a pixel is within the region of interest.
+using PresenceCallback = bool(*)(const LinearImage& img, uint32_t col, uint32_t row, void* user);
+
+// Generates a two-channel field of non-normalized coordinates that indicate the nearest pixel
+// whose presence function returns true. This is the first step before generating a distance
+// field or generalized Voronoi map.
+LinearImage computeCoordField(const LinearImage& src, PresenceCallback presence, void* user);
+
+// Generates a single-channel Euclidean distance field with positive values outside the region
+// of interest in the source image, and zero values inside. If sqrt is false, the computed
+// distances are squared. If signed distance (SDF) is desired, this function can be called a second
+// time using an inverted source field.
+LinearImage edtFromCoordField(const LinearImage& coordField, bool sqrt);
+
+// Dereferences the given coordinate field. Useful for creating Voronoi diagrams or dilated images.
+LinearImage voronoiFromCoordField(const LinearImage& coordField, const LinearImage& src);
+
+// Copies content of a source image into a target image. Requires width/height/channels to match.
+void blitImage(LinearImage& target, const LinearImage& source);
+
 } // namespace image
+
 
 #endif /* IMAGE_LINEARIMAGE_H */

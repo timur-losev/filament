@@ -16,17 +16,40 @@
 
 #include <filament/Box.h>
 
-using namespace math;
+using namespace filament::math;
 
 namespace filament {
 
-Box rigidTransform(Box const& UTILS_RESTRICT box, const math::mat4f& UTILS_RESTRICT m) noexcept {
+Box rigidTransform(Box const& UTILS_RESTRICT box, const mat4f& UTILS_RESTRICT m) noexcept {
     const mat3f u(m.upperLeft());
     return { u * box.center + m[3].xyz, abs(u) * box.halfExtent };
 }
 
-Box rigidTransform(Box const& UTILS_RESTRICT box, const math::mat3f& UTILS_RESTRICT u) noexcept {
+Box rigidTransform(Box const& UTILS_RESTRICT box, const mat3f& UTILS_RESTRICT u) noexcept {
     return { u * box.center, abs(u) * box.halfExtent };
+}
+
+Aabb::Corners Aabb::getCorners() const {
+    return Aabb::Corners{ .vertices = {
+                { min.x, min.y, min.z },
+                { max.x, min.y, min.z },
+                { min.x, max.y, min.z },
+                { max.x, max.y, min.z },
+                { min.x, min.y, max.z },
+                { max.x, min.y, max.z },
+                { min.x, max.y, max.z },
+                { max.x, max.y, max.z },
+            }};
+}
+
+float Aabb::contains(math::float3 p) const noexcept {
+    float d = min.x - p.x;
+    d = std::max(d, min.y - p.y);
+    d = std::max(d, min.z - p.z);
+    d = std::max(d, p.x - max.x);
+    d = std::max(d, p.y - max.y);
+    d = std::max(d, p.z - max.z);
+    return d;
 }
 
 } // namespace filament

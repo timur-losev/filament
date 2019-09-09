@@ -18,7 +18,7 @@
 #define TNT_FILAMENT_SWAPCHAIN_H
 
 #include <filament/FilamentAPI.h>
-#include <filament/driver/DriverEnums.h>
+#include <backend/DriverEnums.h>
 
 #include <utils/compiler.h>
 
@@ -35,7 +35,7 @@ namespace filament {
  * SwapChain* swapChain = engine->createSwapChain(nativeWindow);
  * \endcode
  *
- * When Engine::create() is used without specifying an ExternalContext, the `nativeWindow`
+ * When Engine::create() is used without specifying a Platform, the `nativeWindow`
  * parameter above must be of type:
  *
  * Platform | nativeWindow type
@@ -46,7 +46,7 @@ namespace filament {
  * X11      | Window
  * Windows  | HWND
  *
- * Otherwise, the `nativeWindow` is defined by the concrete implementation of ExternalContext.
+ * Otherwise, the `nativeWindow` is defined by the concrete implementation of Platform.
  *
  *
  * Examples:
@@ -142,7 +142,16 @@ namespace filament {
  */
 class UTILS_PUBLIC SwapChain : public FilamentAPI {
 public:
-    static const uint64_t CONFIG_TRANSPARENT = driver::SWAP_CHAIN_CONFIG_TRANSPARENT;
+    static const uint64_t CONFIG_TRANSPARENT = backend::SWAP_CHAIN_CONFIG_TRANSPARENT;
+    /**
+     * This flag indicates that the swap chain may be used as a source surface
+     * for reading back render results.  This config must be set when creating
+     * any swap chain that will be used as the source for a blit operation.
+     *
+     * @see
+     * Renderer.mirrorFrame()
+     */
+    static const uint64_t CONFIG_READABLE = backend::SWAP_CHAIN_CONFIG_READABLE;
 
     void* getNativeWindow() const noexcept;
 };

@@ -16,35 +16,23 @@
 
 #include "PostprocessMaterialCompiler.h"
 
-#include "PostprocessMaterialBuilder.h"
-#include "sca/GLSLTools.h"
-#include "sca/GLSLPostProcessor.h"
+#include <filamat/PostprocessMaterialBuilder.h>
 
 using namespace filamat;
-using namespace std::placeholders;
 
 namespace matc {
 
-PostprocessMaterialCompiler::PostprocessMaterialCompiler() {
-    GLSLTools::init();
-}
-
-PostprocessMaterialCompiler::~PostprocessMaterialCompiler() {
-    GLSLTools::terminate();
-}
-
 bool PostprocessMaterialCompiler::run(const Config& config) {
+    PostprocessMaterialBuilder::init();
     PostprocessMaterialBuilder builder;
     builder
         .platform(config.getPlatform())
         .targetApi(config.getTargetApi())
-        .codeGenTargetApi(config.getCodeGenTargetApi());
-
-    // Install postprocessor (to clean GLSL from comments and dead code).
-    GLSLPostProcessor postProcessor(config);
-    builder.postProcessor(std::bind(&GLSLPostProcessor::process, postProcessor, _1, _2, _3, _4, _5));
+        .optimization(config.getOptimizationLevel())
+        .printShaders(config.printShaders());
 
     Package package = builder.build();
+    PostprocessMaterialBuilder::shutdown();
     if (!package.isValid()) {
         return false;
     }

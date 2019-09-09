@@ -28,8 +28,10 @@
 #include "../samples/app/FilamentApp.h"
 #include "../samples/app/MeshAssimp.h"
 
+#include "generated/resources/resources.h"
+
 using namespace filament;
-using namespace math;
+using namespace filament::math;
 using Backend = Engine::Backend;
 
 struct GroundPlane {
@@ -48,12 +50,9 @@ struct App {
 };
 
 static const char* MODEL_FILE = "assets/models/monkey/monkey.obj";
-static const char* IBL_FOLDER = "envs/office";
+static const char* IBL_FOLDER = "envs/pillars";
 
 static constexpr bool ENABLE_SHADOWS = true;
-static constexpr uint8_t GROUND_SHADOW_PACKAGE[] = {
-    #include "generated/material/groundShadow.inc"
-};
 
 static GroundPlane createGroundPlane(Engine* engine);
 
@@ -121,15 +120,17 @@ int main(int argc, char** argv) {
     FilamentApp::get().animate([&app](Engine* engine, View* view, double now) {
         auto& tcm = engine->getTransformManager();
         auto ti = tcm.getInstance(app.meshes->getRenderables()[0]);
-        tcm.setTransform(ti, app.transform * mat4f::rotate(now, float3{0, 1, 0}));
+        tcm.setTransform(ti, app.transform * mat4f::rotation(now, float3{ 0, 1, 0 }));
     });
 
     FilamentApp::get().run(config, setup, cleanup);
+
+    return 0;
 }
 
 static GroundPlane createGroundPlane(Engine* engine) {
     Material* shadowMaterial = Material::Builder()
-        .package((void*) GROUND_SHADOW_PACKAGE, sizeof(GROUND_SHADOW_PACKAGE))
+        .package(RESOURCES_GROUNDSHADOW_DATA, RESOURCES_GROUNDSHADOW_SIZE)
         .build(*engine);
 
     const static uint32_t indices[] {
@@ -172,7 +173,7 @@ static GroundPlane createGroundPlane(Engine* engine) {
         .build(*engine, renderable);
 
     auto& tcm = engine->getTransformManager();
-    tcm.setTransform(tcm.getInstance(renderable), mat4f::translate(float3{0, -1, -4}));
+    tcm.setTransform(tcm.getInstance(renderable), mat4f::translation(float3{ 0, -1, -4 }));
     return {
         .vb = vertexBuffer,
         .ib = indexBuffer,

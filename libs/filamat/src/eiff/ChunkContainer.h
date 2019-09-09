@@ -17,12 +17,15 @@
 #ifndef TNT_FILAMAT_CHUNK_CONTAINER_H
 #define TNT_FILAMAT_CHUNK_CONTAINER_H
 
+#include <memory>
 #include <vector>
 
 #include "Chunk.h"
 #include "Flattener.h"
 
-#include <filaflat/FilaflatDefs.h>
+#include <filament/MaterialChunkType.h>
+
+#include "SimpleFieldChunk.h"
 
 namespace filamat {
 
@@ -30,13 +33,28 @@ class ChunkContainer {
 public:
     ChunkContainer() = default;
     ~ChunkContainer() = default;
-    // Copy the POINTER to the chunk and doesn't make a copy. The Chunk* is used later when flattening
-    // The Chunk object must be valid until flatten is called (so for the life duration of ChunkContainer).
-    void addChild(Chunk* chunk);
+
+    template <typename T,
+             std::enable_if_t<std::is_base_of<Chunk, T>::value, int> = 0,
+             typename... Args>
+    const T& addChild(Args&&... args) {
+        T* chunk = new T(std::forward<Args>(args)...);
+        mChildren.emplace_back(chunk);
+        return *chunk;
+    }
+
+    // Helper method to add a SimpleFieldChunk to this ChunkContainer.
+    template <typename T, typename... Args>
+    const SimpleFieldChunk<T>& addSimpleChild(Args&&... args) {
+        return addChild<SimpleFieldChunk<T>>(std::forward<Args>(args)...);
+    }
+
     size_t getSize() const;
     size_t flatten(Flattener& f) const;
+
 private:
-    std::vector<Chunk*> mChildren;
+    using ChunkPtr = std::unique_ptr<Chunk>;
+    std::vector<ChunkPtr> mChildren;
 };
 
 } // namespace filamat

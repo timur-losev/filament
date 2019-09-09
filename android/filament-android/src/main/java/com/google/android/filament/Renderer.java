@@ -27,6 +27,9 @@ public class Renderer {
     private final Engine mEngine;
     private long mNativeObject;
 
+    public static final int MIRROR_FRAME_FLAG_COMMIT = 0x1;
+    public static final int MIRROR_FRAME_FLAG_SET_PRESENTATION_TIME = 0x2;
+    public static final int MIRROR_FRAME_FLAG_CLEAR = 0x4;
 
     Renderer(@NonNull Engine engine, long nativeRenderer) {
         mEngine = engine;
@@ -53,6 +56,25 @@ public class Renderer {
     /**
      * This method MUST be called before endFrame.
      */
+    public void copyFrame(
+            @NonNull SwapChain dstSwapChain, @NonNull Viewport dstViewport,
+            @NonNull Viewport srcViewport, int flags) {
+        nCopyFrame(getNativeObject(), dstSwapChain.getNativeObject(),
+                dstViewport.left, dstViewport.bottom, dstViewport.width, dstViewport.height,
+                srcViewport.left, srcViewport.bottom, srcViewport.width, srcViewport.height,
+                flags);
+    }
+
+    @Deprecated
+    public void mirrorFrame(
+            @NonNull SwapChain dstSwapChain, @NonNull Viewport dstViewport,
+            @NonNull Viewport srcViewport, int flags) {
+        copyFrame(dstSwapChain, dstViewport, srcViewport, flags);
+    }
+
+    /**
+     * This method MUST be called before endFrame.
+     */
     public void readPixels(
             @IntRange(from = 0) int xoffset, @IntRange(from = 0) int yoffset,
             @IntRange(from = 0) int width, @IntRange(from = 0) int height,
@@ -74,7 +96,15 @@ public class Renderer {
         }
     }
 
-    long getNativeObject() {
+    double getUserTime() {
+        return nGetUserTime(getNativeObject());
+    }
+
+    void resetUserTime() {
+        nResetUserTime(getNativeObject());
+    }
+
+    public long getNativeObject() {
         if (mNativeObject == 0) {
             throw new IllegalStateException("Calling method on destroyed Renderer");
         }
@@ -88,9 +118,15 @@ public class Renderer {
     private static native boolean nBeginFrame(long nativeRenderer, long nativeSwapChain);
     private static native void nEndFrame(long nativeRenderer);
     private static native void nRender(long nativeRenderer, long nativeView);
+    private static native void nCopyFrame(long nativeRenderer, long nativeDstSwapChain,
+            int dstLeft, int dstBottom, int dstWidth, int dstHeight,
+            int srcLeft, int srcBottom, int srcWidth, int srcHeight,
+            int flags);
     private static native int nReadPixels(long nativeRenderer, long nativeEngine,
             int xoffset, int yoffset, int width, int height,
             Buffer storage, int remaining,
             int left, int top, int type, int alignment, int stride, int format,
             Object handler, Runnable callback);
+    private static native double nGetUserTime(long nativeRenderer);
+    private static native void nResetUserTime(long nativeRenderer);
 }

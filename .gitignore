@@ -10,3 +10,6 @@ toolchains
 filament/docs/html/**
 .vscode
 build.debug/
+gltf_baker.ini
+*tmp*.png
+civetweb.txt

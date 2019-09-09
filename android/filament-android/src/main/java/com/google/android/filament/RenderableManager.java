@@ -169,6 +169,12 @@ public class RenderableManager {
             return this;
         }
 
+        @NonNull
+        public Builder morphing(boolean enabled) {
+            nBuilderMorphing(mNativeBuilder, enabled);
+            return this;
+        }
+
         public void build(@NonNull Engine engine, @Entity int entity) {
             if (!nBuilderBuild(mNativeBuilder, engine.getNativeObject(), entity)) {
                 throw new IllegalStateException(
@@ -223,6 +229,10 @@ public class RenderableManager {
         if (result < 0) {
             throw new BufferOverflowException();
         }
+    }
+
+    public void setMorphWeights(@EntityInstance int i, float[] weights) {
+        nSetMorphWeights(mNativeObject, i, weights);
     }
 
     public void setAxisAlignedBoundingBox(@EntityInstance int i, @NonNull Box aabb) {
@@ -282,6 +292,14 @@ public class RenderableManager {
         nSetMaterialInstanceAt(mNativeObject, i, primitiveIndex, materialInstance.getNativeObject());
     }
 
+    // creates a MaterialInstance Java wrapper object for a particular material instance
+    public @NonNull MaterialInstance getMaterialInstanceAt(@EntityInstance int i,
+            @IntRange(from = 0) int primitiveIndex) {
+        long nativeMatInstance = nGetMaterialInstanceAt(mNativeObject, i, primitiveIndex);
+        long nativeMaterial = nGetMaterialAt(mNativeObject, i, primitiveIndex);
+        return new MaterialInstance(nativeMaterial, nativeMatInstance);
+    }
+
     // set/change the geometry (vertex/index buffers) of a given primitive
     public void setGeometryAt(@EntityInstance int i, @IntRange(from = 0) int primitiveIndex,
             @NonNull PrimitiveType type, @NonNull VertexBuffer vertices,
@@ -322,6 +340,10 @@ public class RenderableManager {
         return requiredAttributes;
     }
 
+    public long getNativeObject() {
+        return mNativeObject;
+    }
+
     private static native boolean nHasComponent(long nativeRenderableManager, int entity);
     private static native int nGetInstance(long nativeRenderableManager, int entity);
     private static native void nDestroy(long nativeRenderableManager, int entity);
@@ -343,9 +365,11 @@ public class RenderableManager {
     private static native void nBuilderReceiveShadows(long nativeBuilder, boolean enabled);
     private static native void nBuilderSkinning(long nativeBuilder, int boneCount);
     private static native int nBuilderSkinningBones(long nativeBuilder, int boneCount, Buffer bones, int remaining);
+    private static native void nBuilderMorphing(long nativeBuilder, boolean enabled);
 
     private static native int nSetBonesAsMatrices(long nativeObject, int i, Buffer matrices, int remaining, int boneCount, int offset);
     private static native int nSetBonesAsQuaternions(long nativeObject, int i, Buffer quaternions, int remaining, int boneCount, int offset);
+    private static native void nSetMorphWeights(long nativeObject, int instance, float[] weights);
     private static native void nSetAxisAlignedBoundingBox(long nativeRenderableManager, int i, float cx, float cy, float cz, float ex, float ey, float ez);
     private static native void nSetLayerMask(long nativeRenderableManager, int i, int select, int value);
     private static native void nSetPriority(long nativeRenderableManager, int i, int priority);
@@ -356,6 +380,8 @@ public class RenderableManager {
     private static native void nGetAxisAlignedBoundingBox(long nativeRenderableManager, int i, float[] center, float[] halfExtent);
     private static native int nGetPrimitiveCount(long nativeRenderableManager, int i);
     private static native void nSetMaterialInstanceAt(long nativeRenderableManager, int i, int primitiveIndex, long nativeMaterialInstance);
+    private static native long nGetMaterialInstanceAt(long nativeRenderableManager, int i, int primitiveIndex);
+    private static native long nGetMaterialAt(long nativeRenderableManager, int i, int primitiveIndex);
     private static native void nSetGeometryAt(long nativeRenderableManager, int i, int primitiveIndex, int primitiveType, long nativeVertexBuffer, long nativeIndexBuffer, int offset, int count);
     private static native void nSetGeometryAt(long nativeRenderableManager, int i, int primitiveIndex, int primitiveType, int offset, int count);
     private static native void nSetBlendOrderAt(long nativeRenderableManager, int i, int primitiveIndex, int blendOrder);

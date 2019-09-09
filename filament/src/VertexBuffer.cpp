@@ -20,14 +20,24 @@
 
 #include "FilamentAPI-impl.h"
 
+#include <geometry/SurfaceOrientation.h>
+
+#include <math/mat3.h>
+#include <math/norm.h>
+#include <math/quat.h>
+#include <math/vec3.h>
+#include <math/vec4.h>
+
 #include <utils/Panic.h>
 
 namespace filament {
 
 using namespace details;
+using namespace backend;
+using namespace filament::math;
 
 struct VertexBuffer::BuilderDetails {
-    VertexBuffer::Builder::AttributeData mAttributes[MAX_ATTRIBUTE_BUFFERS_COUNT];
+    FVertexBuffer::AttributeData mAttributes[MAX_VERTEX_ATTRIBUTE_COUNT];
     AttributeBitset mDeclaredAttributes;
     uint32_t mVertexCount = 0;
     uint8_t mBufferCount = 0;
@@ -66,37 +76,42 @@ VertexBuffer::Builder& VertexBuffer::Builder::attribute(VertexAttribute attribut
         byteStride = (uint8_t)attributeSize;
     }
 
-    if (size_t(attribute) < MAX_ATTRIBUTE_BUFFERS_COUNT &&
-        size_t(bufferIndex) < MAX_ATTRIBUTE_BUFFERS_COUNT) {
+    if (size_t(attribute) < MAX_VERTEX_ATTRIBUTE_COUNT &&
+        size_t(bufferIndex) < MAX_VERTEX_ATTRIBUTE_COUNT) {
 
 #ifndef NDEBUG
         if (byteOffset & 0x3) {
-            utils::slog.d << "[performace] VertexBuffer::Builder::attribute() "
+            utils::slog.d << "[performance] VertexBuffer::Builder::attribute() "
                              "byteOffset not multiple of 4" << utils::io::endl;
         }
         if (byteStride & 0x3) {
-            utils::slog.d << "[performace] VertexBuffer::Builder::attribute() "
+            utils::slog.d << "[performance] VertexBuffer::Builder::attribute() "
                              "byteStride not multiple of 4" << utils::io::endl;
         }
 #endif
 
-        AttributeData& entry = mImpl->mAttributes[attribute];
+        FVertexBuffer::AttributeData& entry = mImpl->mAttributes[attribute];
         entry.buffer = bufferIndex;
         entry.offset = byteOffset;
         entry.stride = byteStride;
         entry.type = attributeType;
         if (hasIntegerTarget(attribute)) {
-            entry.flags |= Driver::Attribute::FLAG_INTEGER_TARGET;
+            entry.flags |= Attribute::FLAG_INTEGER_TARGET;
         }
         mImpl->mDeclaredAttributes.set(attribute);
     }
     return *this;
 }
 
-VertexBuffer::Builder& VertexBuffer::Builder::normalized(VertexAttribute attribute) noexcept {
-    if (size_t(attribute) < MAX_ATTRIBUTE_BUFFERS_COUNT) {
-        AttributeData& entry = mImpl->mAttributes[attribute];
-        entry.flags |= Driver::Attribute::FLAG_NORMALIZED;
+VertexBuffer::Builder& VertexBuffer::Builder::normalized(VertexAttribute attribute,
+        bool normalized) noexcept {
+    if (size_t(attribute) < MAX_VERTEX_ATTRIBUTE_COUNT) {
+        FVertexBuffer::AttributeData& entry = mImpl->mAttributes[attribute];
+        if (normalized) {
+            entry.flags |= Attribute::FLAG_NORMALIZED;
+        } else {
+            entry.flags &= ~Attribute::FLAG_NORMALIZED;
+        }
     }
     return *this;
 }
@@ -107,6 +122,10 @@ VertexBuffer* VertexBuffer::Builder::build(Engine& engine) {
     }
 
     if (!ASSERT_PRECONDITION_NON_FATAL(mImpl->mBufferCount > 0, "bufferCount cannot be 0")) {
+        return nullptr;
+    }
+    if (!ASSERT_PRECONDITION_NON_FATAL(mImpl->mBufferCount <= MAX_VERTEX_ATTRIBUTE_COUNT,
+            "bufferCount cannot be more than %d", MAX_VERTEX_ATTRIBUTE_COUNT)) {
         return nullptr;
     }
 
@@ -124,16 +143,17 @@ FVertexBuffer::FVertexBuffer(FEngine& engine, const VertexBuffer::Builder& build
     mDeclaredAttributes = builder->mDeclaredAttributes;
     uint8_t attributeCount = (uint8_t) mDeclaredAttributes.count();
 
-    Driver::AttributeArray attributeArray;
+    AttributeArray attributeArray;
 
-    static_assert(attributeArray.size() == MAX_ATTRIBUTE_BUFFERS_COUNT,
-            "Driver::Attribute and Builder::Attribute arrays must match");
+    static_assert(attributeArray.size() == MAX_VERTEX_ATTRIBUTE_COUNT,
+            "Attribute and Builder::Attribute arrays must match");
 
-    static_assert(sizeof(Driver::Attribute) == sizeof(Builder::AttributeData),
-            "Driver::Attribute and Builder::Attribute must match");
+    static_assert(sizeof(Attribute) == sizeof(AttributeData),
+            "Attribute and Builder::Attribute must match");
 
     auto const& declaredAttributes = mDeclaredAttributes;
     auto const& attributes = mAttributes;
+    #pragma nounroll
     for (size_t i = 0, n = attributeArray.size(); i < n; ++i) {
         if (declaredAttributes[i]) {
             attributeArray[i].offset = attributes[i].offset;
@@ -146,7 +166,7 @@ FVertexBuffer::FVertexBuffer(FEngine& engine, const VertexBuffer::Builder& build
 
     FEngine::DriverApi& driver = engine.getDriverApi();
     mHandle = driver.createVertexBuffer(
-            mBufferCount, attributeCount, mVertexCount, attributeArray);
+            mBufferCount, attributeCount, mVertexCount, attributeArray, backend::BufferUsage::STATIC);
 }
 
 void FVertexBuffer::terminate(FEngine& engine) {
@@ -159,15 +179,10 @@ size_t FVertexBuffer::getVertexCount() const noexcept {
 }
 
 void FVertexBuffer::setBufferAt(FEngine& engine, uint8_t bufferIndex,
-        driver::BufferDescriptor&& buffer, uint32_t byteOffset, uint32_t byteSize) {
-
-    if (byteSize == 0) {
-        byteSize = uint32_t(buffer.size);
-    }
-
+        backend::BufferDescriptor&& buffer, uint32_t byteOffset) {
     if (bufferIndex < mBufferCount) {
-        engine.getDriverApi().loadVertexBuffer(mHandle, bufferIndex,
-                std::move(buffer), byteOffset, byteSize);
+        engine.getDriverApi().updateVertexBuffer(mHandle,
+                bufferIndex, std::move(buffer), byteOffset);
     } else {
         ASSERT_PRECONDITION_NON_FATAL(bufferIndex < mBufferCount,
                 "bufferIndex must be < bufferCount");
@@ -180,16 +195,35 @@ void FVertexBuffer::setBufferAt(FEngine& engine, uint8_t bufferIndex,
 // Trampoline calling into private implementation
 // ------------------------------------------------------------------------------------------------
 
-using namespace details;
+using namespace filament::details;
 
 size_t VertexBuffer::getVertexCount() const noexcept {
     return upcast(this)->getVertexCount();
 }
 
 void VertexBuffer::setBufferAt(Engine& engine, uint8_t bufferIndex,
-        driver::BufferDescriptor&& buffer, uint32_t byteOffset, uint32_t byteSize) {
-    upcast(this)->setBufferAt(upcast(engine), bufferIndex,
-            std::move(buffer), byteOffset, byteSize);
+        backend::BufferDescriptor&& buffer, uint32_t byteOffset) {
+    upcast(this)->setBufferAt(upcast(engine), bufferIndex, std::move(buffer), byteOffset);
+}
+
+void VertexBuffer::populateTangentQuaternions(const QuatTangentContext& ctx) {
+    auto quats = geometry::SurfaceOrientation::Builder()
+        .vertexCount(ctx.quatCount)
+        .normals(ctx.normals, ctx.normalsStride)
+        .tangents(ctx.tangents, ctx.tangentsStride)
+        .build();
+
+    switch (ctx.quatType) {
+        case HALF4:
+            quats.getQuats((quath*) ctx.outBuffer, ctx.quatCount, ctx.outStride);
+            break;
+        case SHORT4:
+            quats.getQuats((short4*) ctx.outBuffer, ctx.quatCount, ctx.outStride);
+            break;
+        case FLOAT4:
+            quats.getQuats((quatf*) ctx.outBuffer, ctx.quatCount, ctx.outStride);
+            break;
+    }
 }
 
 } // namespace filament

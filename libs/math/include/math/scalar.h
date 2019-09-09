@@ -21,6 +21,7 @@
 #include <cmath>
 #include <math/compiler.h>
 
+namespace filament {
 namespace math {
 
 template<typename T>
@@ -43,6 +44,12 @@ inline constexpr T MATH_PURE lerp(T x, T y, T a) noexcept {
     return mix(x, y, a);
 }
 
+template<typename T>
+inline constexpr T sign(T x) noexcept {
+    return x < T(0) ? T(-1) : T(1);
+}
+
 } // namespace math
+} // namespace filament
 
 #endif // TNT_MATH_SCALAR_H

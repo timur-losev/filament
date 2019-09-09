@@ -39,7 +39,7 @@
 
 using std::string;
 using utils::Path;
-using namespace math;
+using namespace filament::math;
 
 using namespace image;
 
@@ -67,7 +67,7 @@ static string readFile(const Path& inputPath) {
 
     // Copy the file content into the string
     s.assign((std::istreambuf_iterator<char>(t)), std::istreambuf_iterator<char>());
-    return std::move(s);
+    return s;
 }
 
 // This spawns cmgen, telling it to process the environment map located at "inputPath".
@@ -95,7 +95,7 @@ static void processEnvMap(string inputPath, string resultPath, string goldenPath
     resultPath = Path::getCurrentExecutable().getParent() + resultPath;
     goldenPath = Path::getCurrentDirectory() + goldenPath;
 
-    launchTool(std::move(inputPath), "-x " + executableFolder);
+    launchTool(std::move(inputPath), "-f rgbm -x " + executableFolder);
 
     std::cout << "Reading result image from " << resultPath << std::endl;
     checkFileExistence(resultPath);
@@ -104,7 +104,7 @@ static void processEnvMap(string inputPath, string resultPath, string goldenPath
     ASSERT_EQ(resultImage.isValid(), true);
     ASSERT_EQ(resultImage.getChannels(), 4);
     LinearImage resultLImage = toLinearFromRGBM(
-            reinterpret_cast<math::float4 const*>(resultImage.getPixelRef()),
+            reinterpret_cast<filament::math::float4 const*>(resultImage.getPixelRef()),
             resultImage.getWidth(), resultImage.getHeight());
 
     std::cout << "Golden image is at " << goldenPath << std::endl;
@@ -112,7 +112,7 @@ static void processEnvMap(string inputPath, string resultPath, string goldenPath
 }
 
 static void compareSh(const string& content, const string& regex,
-        const float3& match, float epsilon = 1e-7f) {
+        const float3& match, float epsilon = 1e-5f) {
     std::smatch smatch;
     if (std::regex_search(content, smatch, std::regex(regex))) {
         float3 sh(std::stof(smatch[1]), std::stof(smatch[2]), std::stof(smatch[3]));
@@ -128,7 +128,7 @@ TEST_F(CmgenTest, SphericalHarmonics) { // NOLINT
     string content = readFile(resultPath);
     string vec3(R"(\(\s+([-+0-9.]+),\s+([-+0-9.]+),\s+([-+0-9.]+)\); // )");
 
-    compareSh(content, vec3 + "L00",  float3{3.14159265f});
+    compareSh(content, vec3 + "L00",  float3{1.0f});
     compareSh(content, vec3 + "L1-1", float3{0.0f});
     compareSh(content, vec3 + "L10",  float3{0.0f});
     compareSh(content, vec3 + "L11",  float3{0.0f});
@@ -142,7 +142,7 @@ TEST_F(CmgenTest, SphericalHarmonics) { // NOLINT
 TEST_F(CmgenTest, HdrLatLong) { // NOLINT
     const string inputPath = "assets/environments/white_furnace/white_furnace.exr";
     const string resultPath = "white_furnace/nx.rgbm";
-    const string goldenPath = "samples/envs/white_furnace/nx.rgbm";
+    const string goldenPath = "tools/cmgen/tests/white_furnace_nx.rgbm";
     processEnvMap(inputPath, resultPath, goldenPath);
 }
 

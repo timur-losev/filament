@@ -20,8 +20,8 @@
 #define TNT_FILAMENT_TEXTURE_H
 
 #include <filament/FilamentAPI.h>
-#include <filament/driver/DriverEnums.h>
-#include <filament/driver/PixelBufferDescriptor.h>
+#include <backend/DriverEnums.h>
+#include <backend/PixelBufferDescriptor.h>
 
 #include <utils/compiler.h>
 
@@ -70,19 +70,34 @@ class UTILS_PUBLIC Texture : public FilamentAPI {
 public:
     static constexpr const size_t BASE_LEVEL = 0;
 
-    using PixelBufferDescriptor = driver::PixelBufferDescriptor;    //!< Geometry of a pixel buffer
-    using Sampler = driver::SamplerType;                            //!< Type of sampler
-    using InternalFormat = driver::TextureFormat;                   //!< Internal texel format
-    using CubemapFace = driver::TextureCubemapFace;                 //!< Cube map faces
-    using Format = driver::PixelDataFormat;                         //!< Pixel color format
-    using Type = driver::PixelDataType;                             //!< Pixel data format
-    using FaceOffsets = driver::FaceOffsets;                        //!< Cube map faces offsets
-    using Usage = driver::TextureUsage;                             //!< Usage affects texel layout
+    using PixelBufferDescriptor = backend::PixelBufferDescriptor;    //!< Geometry of a pixel buffer
+    using Sampler = backend::SamplerType;                            //!< Type of sampler
+    using InternalFormat = backend::TextureFormat;                   //!< Internal texel format
+    using CubemapFace = backend::TextureCubemapFace;                 //!< Cube map faces
+    using Format = backend::PixelDataFormat;                         //!< Pixel color format
+    using Type = backend::PixelDataType;                             //!< Pixel data format
+    using CompressedType = backend::CompressedPixelDataType;         //!< Compressed pixel data format
+    using FaceOffsets = backend::FaceOffsets;                        //!< Cube map faces offsets
+    using Usage = backend::TextureUsage;                             //!< Usage affects texel layout
 
     static bool isTextureFormatSupported(Engine& engine, InternalFormat format) noexcept;
 
     static size_t computeTextureDataSize(Texture::Format format, Texture::Type type,
             size_t stride, size_t height, size_t alignment) noexcept;
+
+
+    /**
+     * Options for enviornment prefiltering into reflection map
+     *
+     * @see generatePrefilterMipmap()
+     */
+    struct UTILS_PUBLIC PrefilterOptions {
+        uint16_t sampleCount = 8;   //!< sample count used for filtering
+        bool mirror = true;         //!< whether the environment must be mirrored
+    private:
+        UTILS_UNUSED uintptr_t reserved[3] = {};
+    };
+
 
     //! Use Builder to construct a Texture object instance
     class Builder : public BuilderBase<BuilderDetails> {
@@ -128,8 +143,8 @@ public:
 
         /**
          * Specifies whether this texture is a cubemap
-         * @param target either driver::SamplerType::SAMPLER_2D or
-         *                      driver::SamplerType::SAMPLER_CUBEMAP
+         * @param target either Sampler::SAMPLER_2D or
+         *                      Sampler::SAMPLER_CUBEMAP
          * @return This Builder, for chaining calls.
          * @see Sampler
          */
@@ -165,9 +180,9 @@ public:
          * @param engine Reference to the filament::Engine to associate this Texture with.
          *
          * @return pointer to the newly created object or nullptr if exceptions are disabled and
-         *         an error occured.
+         *         an error occurred.
          *
-         * @exception utils::PostConditionPanic if a runtime error occured, such as running out of
+         * @exception utils::PostConditionPanic if a runtime error occurred, such as running out of
          *            memory or other resources.
          * @exception utils::PreConditionPanic if a parameter to a builder function was invalid.
          */
@@ -181,7 +196,7 @@ public:
      * Returns the width of a 2D or 3D texture level
      * @param level texture level.
      * @return Width in texel of the specified \p level, clamped to 1.
-     * @attention If this texture is using driver::SamplerType::SAMPLER_EXTERNAL, the dimension
+     * @attention If this texture is using Sampler::SAMPLER_EXTERNAL, the dimension
      * of the texture are unknown and this method always returns whatever was set on the Builder.
      */
     size_t getWidth(size_t level = BASE_LEVEL) const noexcept;
@@ -190,7 +205,7 @@ public:
      * Returns the height of a 2D or 3D texture level
      * @param level texture level.
      * @return Height in texel of the specified \p level, clamped to 1.
-     * @attention If this texture is using driver::SamplerType::SAMPLER_EXTERNAL, the dimension
+     * @attention If this texture is using Sampler::SAMPLER_EXTERNAL, the dimension
      * of the texture are unknown and this method always returns whatever was set on the Builder.
      */
     size_t getHeight(size_t level = BASE_LEVEL) const noexcept;
@@ -199,7 +214,7 @@ public:
      * Returns the depth of a 3D texture level
      * @param level texture level.
      * @return Depth in texel of the specified \p level, clamped to 1.
-     * @attention If this texture is using driver::SamplerType::SAMPLER_EXTERNAL, the dimension
+     * @attention If this texture is using Sampler::SAMPLER_EXTERNAL, the dimension
      * of the texture are unknown and this method always returns whatever was set on the Builder.
      */
     size_t getDepth(size_t level = BASE_LEVEL) const noexcept;
@@ -207,7 +222,7 @@ public:
     /**
      * Returns the maximum number of levels this texture can have.
      * @return maximum number of levels this texture can have.
-     * @attention If this texture is using driver::SamplerType::SAMPLER_EXTERNAL, the dimension
+     * @attention If this texture is using Sampler::SAMPLER_EXTERNAL, the dimension
      * of the texture are unknown and this method always returns whatever was set on the Builder.
      */
     size_t getLevels() const noexcept;
@@ -233,9 +248,9 @@ public:
      *
      * @attention \p engine must be the instance passed to Builder::build()
      * @attention \p level must be less than getLevels().
-     * @attention \p buffer's driver::PixelDataFormat must match that of getFormat().
-     * @attention This Texture instance must use driver::SamplerType::SAMPLER_2D or
-     *            driver::SamplerType::SAMPLER_EXTERNAL. IF the later is specified
+     * @attention \p buffer's Texture::Format must match that of getFormat().
+     * @attention This Texture instance must use Sampler::SAMPLER_2D or
+     *            Sampler::SAMPLER_EXTERNAL. IF the later is specified
      *            and external textures are supported by the driver implementation,
      *            this method will have no effect, otherwise it will behave as if the
      *            texture was specified with driver::SamplerType::SAMPLER_2D.
@@ -263,12 +278,12 @@ public:
      *
      * @attention \p engine must be the instance passed to Builder::build()
      * @attention \p level must be less than getLevels().
-     * @attention \p buffer's driver::PixelDataFormat must match that of getFormat().
-     * @attention This Texture instance must use driver::SamplerType::SAMPLER_2D or
-     *            driver::SamplerType::SAMPLER_EXTERNAL. IF the later is specified
+     * @attention \p buffer's Texture::Format must match that of getFormat().
+     * @attention This Texture instance must use Sampler::SAMPLER_2D or
+     *            Sampler::SAMPLER_EXTERNAL. IF the later is specified
      *            and external textures are supported by the driver implementation,
      *            this method will have no effect, otherwise it will behave as if the
-     *            texture was specified with driver::SamplerType::SAMPLER_2D.
+     *            texture was specified with Sampler::SAMPLER_2D.
      *
      * @see Builder::sampler()
      */
@@ -279,6 +294,8 @@ public:
     /**
      * Specify all six images of a cube map level.
      *
+     * This method follows exactly the OpenGL conventions.
+     *
      * @param engine        Engine this texture is associated to.
      * @param level         Level to set the image for.
      * @param buffer        Client-side buffer containing the images to set.
@@ -287,10 +304,10 @@ public:
      *
      * @attention \p engine must be the instance passed to Builder::build()
      * @attention \p level must be less than getLevels().
-     * @attention \p buffer's driver::PixelDataFormat must match that of getFormat().
-     * @attention This Texture instance must use driver::SamplerType::SAMPLER_CUBEMAP or it has no effect
+     * @attention \p buffer's Texture::Format must match that of getFormat().
+     * @attention This Texture instance must use Sampler::SAMPLER_CUBEMAP or it has no effect
      *
-     * @see driver::TextureCubemapFace, Builder::sampler()
+     * @see Texture::CubemapFace, Builder::sampler()
      */
     void setImage(Engine& engine, size_t level,
             PixelBufferDescriptor&& buffer, const FaceOffsets& faceOffsets) const noexcept;
@@ -305,11 +322,15 @@ public:
      *   - the size and format of the texture is defined by the external image
      *
      * @param engine        Engine this texture is associated to.
-     * @param image         An opaque handle to a platform specific image. The only supported
-     *                      type is eglImageOES.
+     * @param image         An opaque handle to a platform specific image. Supported types are
+     *                      eglImageOES on Android and CVPixelBufferRef on iOS.
+     *
+     *                      On iOS the following pixel formats are supported:
+     *                        - kCVPixelFormatType_32BGRA
+     *                        - kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
      *
      * @attention \p engine must be the instance passed to Builder::build()
-     * @attention This Texture instance must use driver::SamplerType::SAMPLER_EXTERNAL or it has no effect
+     * @attention This Texture instance must use Sampler::SAMPLER_EXTERNAL or it has no effect
      *
      * @see Builder::sampler()
      *
@@ -329,7 +350,7 @@ public:
      * @param stream        A Stream object
      *
      * @attention \p engine must be the instance passed to Builder::build()
-     * @attention This Texture instance must use driver::SamplerType::SAMPLER_EXTERNAL or it has no effect
+     * @attention This Texture instance must use Sampler::SAMPLER_EXTERNAL or it has no effect
      *
      * @see Builder::sampler(), Stream
      *
@@ -337,14 +358,53 @@ public:
     void setExternalStream(Engine& engine, Stream* stream) noexcept;
 
     /**
-     * Generates all the mipmap levels automatically.
+     * Generates all the mipmap levels automatically. This requires the texture to have a
+     * color-renderable format.
      *
      * @param engine        Engine this texture is associated to.
      *
      * @attention \p engine must be the instance passed to Builder::build()
-     * @attention This Texture instance must NOT use driver::SamplerType::SAMPLER_CUBEMAP or it has no effect
+     * @attention This Texture instance must NOT use Sampler::SAMPLER_CUBEMAP or it has no effect
      */
     void generateMipmaps(Engine& engine) const noexcept;
+
+    /**
+     * Creates a reflection map from an environment map.
+     *
+     * This is a utility function that replaces calls to Texture::setImage().
+     * The provided environment map is processed and all mipmap levels are populated. The
+     * processing is similar to the offline tool `cmgen` as a lower quality setting.
+     *
+     * This function is intended to be used when the environment cannot be processed offline,
+     * for instance if it's generated at runtime.
+     *
+     * The source data must obey to some constraints:
+     *   - the data type must be PixelDataFormat::RGB
+     *   - the data format must be one of
+     *          - PixelDataType::FLOAT
+     *          - PixelDataType::HALF
+     *
+     * The current texture must be a cubemap
+     *
+     * The reflections cubemap's internal format cannot be a compressed format.
+     *
+     * The reflections cubemap's dimension must be a power-of-two.
+     *
+     * @warning This operation is computationally intensive, especially with large environments and
+     *          is currently synchronous. Expect about 1ms for a 16x16 cubemap.
+     *
+     * @param engine        Reference to the filament::Engine to associate this IndirectLight with.
+     * @param buffer        Client-side buffer containing the images to set.
+     * @param faceOffsets   Offsets in bytes into \p buffer for all six images. The offsets
+     *                      are specified in the following order: +x, -x, +y, -y, +z, -z
+     * @param options       Optional parameter to controlling user-specified quality and options.
+     *
+     * @exception utils::PreConditionPanic if the source data constraints are not respected.
+     *
+     */
+    void generatePrefilterMipmap(Engine& engine,
+            PixelBufferDescriptor&& buffer, const FaceOffsets& faceOffsets,
+            PrefilterOptions const* options = nullptr);
 };
 
 } // namespace filament

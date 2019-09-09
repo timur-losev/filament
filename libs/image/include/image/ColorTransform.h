@@ -24,14 +24,30 @@
 #include <math/scalar.h>
 #include <math/vec3.h>
 #include <math/vec4.h>
+#include <math/half.h>
 
 #include <memory>
 
 namespace image {
 
 template <typename T>
-inline math::float4 linearToRGBM(const T& linear) {
-    using math::float4;
+uint32_t linearToRGB_10_11_11_REV(const T& linear) {
+    using fp11 = filament::math::fp<0, 5, 6>;
+    using fp10 = filament::math::fp<0, 5, 5>;
+    // the max value for a RGB_11_11_10 is {65024, 65024, 64512} :  (2 - 2^-M) * 2^(E-1)
+    // we clamp to the min of that
+    fp11 r = fp11::fromf(std::min(64512.0f, linear[0]));
+    fp11 g = fp11::fromf(std::min(64512.0f, linear[1]));
+    fp10 b = fp10::fromf(std::min(64512.0f, linear[2]));
+    uint32_t ir = r.bits & 0x7FF;
+    uint32_t ig = g.bits & 0x7FF;
+    uint32_t ib = b.bits & 0x3FF;
+    return (ib << 22) | (ig << 11) | ir;
+}
+
+template <typename T>
+inline filament::math::float4 linearToRGBM(const T& linear) {
+    using filament::math::float4;
 
     float4 RGBM(linear[0], linear[1], linear[2], 1.0f);
 
@@ -42,7 +58,7 @@ inline math::float4 linearToRGBM(const T& linear) {
 
     float maxComponent = std::max(std::max(RGBM.r, RGBM.g), std::max(RGBM.b, 1e-6f));
     // Don't let M go below 1 in the [0..16] range
-    RGBM.a = math::clamp(maxComponent, 1.0f / 16.0f, 1.0f);
+    RGBM.a =  filament::math::clamp(maxComponent, 1.0f / 16.0f, 1.0f);
     RGBM.a = std::ceil(RGBM.a * 255.0f) / 255.0f;
 
     RGBM.rgb = saturate(RGBM.rgb / RGBM.a);
@@ -51,8 +67,8 @@ inline math::float4 linearToRGBM(const T& linear) {
 }
 
 template <typename T>
-inline math::float3 RGBMtoLinear(const T& rgbm) {
-    using math::float3;
+inline filament::math::float3 RGBMtoLinear(const T& rgbm) {
+    using filament::math::float3;
 
     float3 linear(rgbm[0], rgbm[1], rgbm[2]);
     linear *= rgbm.a * 16.0f;
@@ -61,8 +77,8 @@ inline math::float3 RGBMtoLinear(const T& rgbm) {
 }
 
 template <typename T>
-inline math::float3 linearTosRGB(const T& linear) {
-    using math::float3;
+inline filament::math::float3 linearTosRGB(const T& linear) {
+    using filament::math::float3;
     constexpr float a = 0.055f;
     constexpr float a1 = 1.055f;
     constexpr float p = 1 / 2.4f;
@@ -92,8 +108,8 @@ template<typename T>
 T sRGBToLinear(const T& sRGB);
 
 template<>
-inline math::float3 sRGBToLinear(const math::float3& sRGB) {
-    using math::float3;
+inline filament::math::float3 sRGBToLinear(const filament::math::float3& sRGB) {
+    using filament::math::float3;
     constexpr float a = 0.055f;
     constexpr float a1 = 1.055f;
     constexpr float p = 2.4f;
@@ -109,8 +125,8 @@ inline math::float3 sRGBToLinear(const math::float3& sRGB) {
 }
 
 template<>
-inline math::float4 sRGBToLinear(const math::float4& sRGB) {
-    using math::float4;
+inline filament::math::float4 sRGBToLinear(const filament::math::float4& sRGB) {
+    using filament::math::float4;
     constexpr float a = 0.055f;
     constexpr float a1 = 1.055f;
     constexpr float p = 2.4f;
@@ -130,8 +146,8 @@ template<typename T>
 T linearToSRGB(const T& color);
 
 template<>
-inline math::float3 linearToSRGB(const math::float3& color) {
-    using math::float3;
+inline filament::math::float3 linearToSRGB(const filament::math::float3& color) {
+    using filament::math::float3;
     float3 sRGBColor{color};
     #pragma nounroll
     for (size_t i = 0; i < sRGBColor.size(); i++) {
@@ -141,46 +157,46 @@ inline math::float3 linearToSRGB(const math::float3& color) {
     return sRGBColor;
 }
 
-// Creates a 3-channel sRGB u8 image from a linear f32 image.
-// The source image can have three or more channels, but only the first three are honored.
-template <typename T>
+// Creates a n-channel sRGB image from a linear floating-point image.
+// The source image can have more than N channels, but only the first N are honored.
+template <typename T, int N = 3>
 std::unique_ptr<uint8_t[]> fromLinearTosRGB(const LinearImage& image) {
-    using math::float3;
-    size_t w = image.getWidth();
-    size_t h = image.getHeight();
-    UTILS_UNUSED_IN_RELEASE size_t channels = image.getChannels();
-    assert(channels >= 3);
-    std::unique_ptr<uint8_t[]> dst(new uint8_t[w * h * 3 * sizeof(T)]);
+    const size_t w = image.getWidth();
+    const size_t h = image.getHeight();
+    const size_t nchan = image.getChannels();
+    assert(nchan >= N);
+    std::unique_ptr<uint8_t[]> dst(new uint8_t[w * h * N * sizeof(T)]);
     T* d = reinterpret_cast<T*>(dst.get());
     for (size_t y = 0; y < h; ++y) {
-        for (size_t x = 0; x < w; ++x, d += 3) {
-            auto src = image.get<float3>((uint32_t) x, (uint32_t) y);
-            float3 l(linearTosRGB(saturate(*src)) * std::numeric_limits<T>::max());
-            for (size_t i = 0; i < 3; i++) {
-                d[i] = T(l[i]);
+        float const* p = image.getPixelRef(0, y);
+        for (size_t x = 0; x < w; ++x, p += nchan, d += N) {
+            for (int n = 0; n < N; n++) {
+                float source = n < 3 ? linearTosRGB(p[n]) : p[n];
+                float target =  filament::math::saturate(source) * std::numeric_limits<T>::max() + 0.5f;
+                d[n] = T(target);
             }
         }
     }
     return dst;
 }
 
-// Creates a 3-channel RGB u8 image from a f32 image.
-// The source image can have three or more channels, but only the first three are honored.
-template <typename T>
+// Creates a N-channel RGB u8 image from a f32 image.
+// The source image can have three or more channels, but only the first N are honored.
+template <typename T, int N = 3>
 std::unique_ptr<uint8_t[]> fromLinearToRGB(const LinearImage& image) {
-    using math::float3;
+    using filament::math::float3;
     size_t w = image.getWidth();
     size_t h = image.getHeight();
-    UTILS_UNUSED_IN_RELEASE size_t channels = image.getChannels();
-    assert(channels >= 3);
-    std::unique_ptr<uint8_t[]> dst(new uint8_t[w * h * 3 * sizeof(T)]);
+    size_t channels = image.getChannels();
+    assert(channels >= N);
+    std::unique_ptr<uint8_t[]> dst(new uint8_t[w * h * N * sizeof(T)]);
     T* d = reinterpret_cast<T*>(dst.get());
     for (size_t y = 0; y < h; ++y) {
-        for (size_t x = 0; x < w; ++x, d += 3) {
-            auto src = image.get<float3>((uint32_t) x, (uint32_t) y);
-            float3 l(saturate(*src) * std::numeric_limits<T>::max());
-            for (size_t i = 0; i < 3; i++) {
-                d[i] = T(l[i]);
+        float const* p = image.getPixelRef(0, y);
+        for (size_t x = 0; x < w; ++x, p += channels, d += N) {
+            for (int n = 0; n < N; n++) {
+                float target =  filament::math::saturate(p[n]) * std::numeric_limits<T>::max() + 0.5f;
+                d[n] = T(target);
             }
         }
     }
@@ -191,7 +207,7 @@ std::unique_ptr<uint8_t[]> fromLinearToRGB(const LinearImage& image) {
 // The source image can have three or more channels, but only the first three are honored.
 template <typename T>
 std::unique_ptr<uint8_t[]> fromLinearToRGBM(const LinearImage& image) {
-    using namespace math;
+    using namespace filament::math;
     size_t w = image.getWidth();
     size_t h = image.getHeight();
     UTILS_UNUSED_IN_RELEASE size_t channels = image.getChannels();
@@ -201,10 +217,30 @@ std::unique_ptr<uint8_t[]> fromLinearToRGBM(const LinearImage& image) {
     for (size_t y = 0; y < h; ++y) {
         for (size_t x = 0; x < w; ++x, d += 4) {
             auto src = image.get<float3>((uint32_t) x, (uint32_t) y);
-            float4 l(linearToRGBM(*src) * std::numeric_limits<T>::max());
+            float4 l(linearToRGBM(*src) * std::numeric_limits<T>::max() + 0.5f);
             for (size_t i = 0; i < 4; i++) {
                 d[i] = T(l[i]);
             }
+        }
+    }
+    return dst;
+}
+
+// Creates a 3-channel RGB_10_11_11_REV image from a f32 image.
+// The source image can have three or more channels, but only the first three are honored.
+inline std::unique_ptr<uint8_t[]> fromLinearToRGB_10_11_11_REV(const LinearImage& image) {
+    using namespace filament::math;
+    size_t w = image.getWidth();
+    size_t h = image.getHeight();
+    UTILS_UNUSED_IN_RELEASE size_t channels = image.getChannels();
+    assert(channels >= 3);
+    std::unique_ptr<uint8_t[]> dst(new uint8_t[w * h * sizeof(uint32_t)]);
+    uint8_t* d = dst.get();
+    for (size_t y = 0; y < h; ++y) {
+        for (size_t x = 0; x < w; ++x, d += sizeof(uint32_t)) {
+            auto src = image.get<float3>((uint32_t)x, (uint32_t)y);
+            uint32_t v = linearToRGB_10_11_11_REV(*src);
+            *reinterpret_cast<uint32_t*>(d) = v;
         }
     }
     return dst;
@@ -222,7 +258,7 @@ std::unique_ptr<uint8_t[]> fromLinearToGrayscale(const LinearImage& image) {
     for (size_t y = 0; y < h; ++y) {
         float const* p = image.getPixelRef(0, y);
         for (size_t x = 0; x < w; ++x, ++p, ++d) {
-            const float gray = math::saturate(*p) * std::numeric_limits<T>::max();
+            const float gray =  filament::math::saturate(*p) * std::numeric_limits<T>::max() + 0.5f;
             d[0] = T(gray);
         }
     }
@@ -236,11 +272,11 @@ template<typename T, typename PROCESS, typename TRANSFORM>
 static LinearImage toLinear(size_t w, size_t h, size_t bpr,
             const uint8_t* src, PROCESS proc, TRANSFORM transform) {
     LinearImage result((uint32_t) w, (uint32_t) h, 3);
-    auto d = result.get<math::float3>();
+    auto d = result.get< filament::math::float3>();
     for (size_t y = 0; y < h; ++y) {
         T const* p = reinterpret_cast<T const*>(src + y * bpr);
         for (size_t x = 0; x < w; ++x, p += 3) {
-            math::float3 sRGB(proc(p[0]), proc(p[1]), proc(p[2]));
+             filament::math::float3 sRGB(proc(p[0]), proc(p[1]), proc(p[2]));
             sRGB /= std::numeric_limits<T>::max();
             *d++ = transform(sRGB);
         }
@@ -264,11 +300,11 @@ template<typename T, typename PROCESS, typename TRANSFORM>
 static LinearImage toLinearWithAlpha(size_t w, size_t h, size_t bpr,
         const uint8_t* src, PROCESS proc, TRANSFORM transform) {
     LinearImage result((uint32_t) w, (uint32_t) h, 4);
-    auto d = result.get<math::float4>();
+    auto d = result.get< filament::math::float4>();
     for (size_t y = 0; y < h; ++y) {
         T const* p = reinterpret_cast<T const*>(src + y * bpr);
         for (size_t x = 0; x < w; ++x, p += 4) {
-            math::float4 sRGB(proc(p[0]), proc(p[1]), proc(p[2]), proc(p[3]));
+             filament::math::float4 sRGB(proc(p[0]), proc(p[1]), proc(p[2]), proc(p[3]));
             sRGB /= std::numeric_limits<T>::max();
             *d++ = transform(sRGB);
         }
@@ -286,12 +322,26 @@ static LinearImage toLinearWithAlpha(size_t w, size_t h, size_t bpr,
 }
 
 // Constructs a 3-channel LinearImage from RGBM data.
-inline LinearImage toLinearFromRGBM(math::float4 const* src, uint32_t w, uint32_t h) {
+inline LinearImage toLinearFromRGBM( filament::math::float4 const* src, uint32_t w, uint32_t h) {
     LinearImage result(w, h, 3);
-    auto dst = result.get<math::float3>();
+    auto dst = result.get< filament::math::float3>();
     for (uint32_t row = 0; row < h; ++row) {
         for (uint32_t col = 0; col < w; ++col, ++src, ++dst) {
             *dst = RGBMtoLinear(*src);
+        }
+    }
+    return result;
+}
+
+inline LinearImage fromLinearToRGBM(const LinearImage& image) {
+    assert(image.getChannels() == 3);
+    const uint32_t w = image.getWidth(), h = image.getHeight();
+    LinearImage result(w, h, 4);
+    auto src = image.get< filament::math::float3>();
+    auto dst = result.get< filament::math::float4>();
+    for (uint32_t row = 0; row < h; ++row) {
+        for (uint32_t col = 0; col < w; ++col, ++src, ++dst) {
+            *dst = linearToRGBM(*src);
         }
     }
     return result;

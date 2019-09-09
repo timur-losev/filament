@@ -23,7 +23,7 @@
 #include "details/Material.h"
 #include "details/Scene.h"
 
-#include "driver/DriverApiForward.h"
+#include "private/backend/DriverApiForward.h"
 
 #include <private/filament/Variant.h>
 
@@ -69,7 +69,7 @@ public:
     static constexpr uint64_t PRIORITY_MASK                 = 0x001C000000000000llu;
     static constexpr int PRIORITY_SHIFT                     = 50;
 
-    static constexpr uint64_t BLENDING_MASK                 = 0x00E0000000000000llu;
+    static constexpr uint64_t BLENDING_MASK                 = 0x0020000000000000llu;
     static constexpr int BLENDING_SHIFT                     = 53;
 
     static constexpr uint64_t PASS_MASK                     = 0xFF00000000000000llu;
@@ -84,50 +84,65 @@ public:
     };
 
     enum CommandTypeFlags : uint8_t {
-        COLOR  = 0x1, // generate the color pass
-        DEPTH  = 0x2, // generate the depth pass
-        SHADOW = 0x4, // generate the shadow-map pass
-        DEPTH_AND_COLOR = DEPTH | COLOR, // generate both depth and color pass
+        COLOR = 0x1,    // generate the color pass only (e.g. no depth-prepass)
+        DEPTH = 0x2,    // generate the depth pass only ( e.g. shadowmap)
+        COLOR_AND_DEPTH = COLOR | DEPTH,
+
+
+        // shadow-casters are rendered in the depth buffer, regardless of blending (or alpha masking)
+        DEPTH_CONTAINS_SHADOW_CASTERS = 0x4,
+        // alpha-blended objects are not rendered in the depth buffer
+        DEPTH_FILTER_TRANSLUCENT_OBJECTS = 0x8,
+        // alpha-tested objects are not rendered in the depth buffer
+        DEPTH_FILTER_ALPHA_MASKED_OBJECTS = 0x10,
+
+
+        // generate commands for color with depth pre-pass -- in this case, we want to put
+        // objects that use alpha-testing or blending in the depth prepass.
+        COLOR_WITH_DEPTH_PREPASS = DEPTH | COLOR | DEPTH_FILTER_TRANSLUCENT_OBJECTS | DEPTH_FILTER_ALPHA_MASKED_OBJECTS,
+        // generate commands for shadow map
+        SHADOW = DEPTH | DEPTH_CONTAINS_SHADOW_CASTERS
     };
+
+
 
     // Command key encoding
     // --------------------
     //
     // a     = alpha masking
-    // bbb   = blending
     // ppp   = priority
     // t     = two-pass transparency ordering
     // 0     = reserved, must be zero
     //
     // DEPTH command
-    // |    8   | 3 | 3 | 2|       16       |               32               |
-    // +--------+---+---+--+----------------+--------------------------------+
-    // |00000000|000|ppp|00|0000000000000000|          distanceBits          |
-    // +--------+---+---+-------------------+--------------------------------+
-    // | correctness    |     optimizations (truncation allowed)             |
+    // |    8   | 2|1| 3 | 2|       16       |               32               |
+    // +--------+--+-+---+--+----------------+--------------------------------+
+    // |00000000|00|0|ppp|00|0000000000000000|          distanceBits          |
+    // +--------+--+-+---+-------------------+--------------------------------+
+    // | correctness     |     optimizations (truncation allowed)             |
     //
     //
     // COLOR command (with depth prepass)
-    // |    8   | 3 | 3 | 2|       16       |               32               |
-    // +--------+---+---+--+----------------+--------------------------------+
-    // |00000001|00a|ppp|00|0000000000000000|          material-id           |
-    // +--------+---+---+--+----------------+--------------------------------+
-    // | correctness    |        optimizations (truncation allowed)          |
+    // |    8   | 2|1| 3 | 2|       16       |               32               |
+    // +--------+--+-+---+--+----------------+--------------------------------+
+    // |00000001|00|a|ppp|00|0000000000000000|          material-id           |
+    // +--------+--+-+---+--+----------------+--------------------------------+
+    // | correctness     |        optimizations (truncation allowed)          |
     //
     //
     // COLOR command (without depth prepass)
-    // |    8   | 3 | 3 | 2|  6   |   10     |               32               |
-    // +--------+---+---+--+------+----------+--------------------------------+
-    // |00000001|00a|ppp|00|000000| Z-bucket |          material-id           |
-    // +--------+---+---+--+------+----------+--------------------------------+
-    // | correctness    |      optimizations (truncation allowed)             |
+    // |    8   | 2|1| 3 | 2|  6   |   10     |               32               |
+    // +--------+--+-+---+--+------+----------+--------------------------------+
+    // |00000001|00|a|ppp|00|000000| Z-bucket |          material-id           |
+    // +--------+--+-+---+--+------+----------+--------------------------------+
+    // | correctness     |      optimizations (truncation allowed)             |
     //
     //
     // BLENDED command
-    // |    8   | 3 | 3 | 2|              32                |         15    |1|
-    // +--------+---+---+--+--------------------------------+---------------+-+
-    // |00000010|bbb|ppp|00|         ~distanceBits          |   blendOrder  |t|
-    // +--------+---+---+--+--------------------------------+---------------+-+
+    // |    8   | 2|1| 3 | 2|              32                |         15    |1|
+    // +--------+--+-+---+--+--------------------------------+---------------+-+
+    // |00000010|00|0|ppp|00|         ~distanceBits          |   blendOrder  |t|
+    // +--------+--+-+---+--+--------------------------------+---------------+-+
     // | correctness                                                          |
     //
     //
@@ -172,14 +187,14 @@ public:
         return boolish ? -1llu : 0llu;
     }
 
-    struct PrimitiveInfo { // 28 bytes
-        FMaterialInstance const* mi = nullptr;              // 8 bytes (4)
-        Handle<HwRenderPrimitive> primitiveHandle;          // 4 bytes
-        Handle<HwUniformBuffer> perRenderableUniforms;      // 4 bytes
-        Handle<HwUniformBuffer> perRenderableBones;         // 4 bytes
-        Driver::RasterState rasterState;                    // 4 bytes
-        Variant materialVariant;                            // 1 byte
-        uint8_t reserved[3] = { };                          // 3 bytes (that helps the compiler)
+    struct PrimitiveInfo { // 24 bytes
+        FMaterialInstance const* mi = nullptr;                          // 8 bytes (4)
+        backend::Handle<backend::HwRenderPrimitive> primitiveHandle;    // 4 bytes
+        backend::Handle<backend::HwUniformBuffer> perRenderableBones;   // 4 bytes
+        backend::RasterState rasterState;                               // 4 bytes
+        uint16_t index = 0;                                             // 2 bytes
+        Variant materialVariant;                                        // 1 byte
+        uint8_t reserved = {};                                          // 1 byte
     };
 
     struct alignas(8) Command {     // 32 bytes
@@ -195,35 +210,30 @@ public:
     static_assert(std::is_trivially_destructible<Command>::value,
             "Command isn't trivially destructible");
 
-
     using RenderFlags = uint8_t;
-    static constexpr RenderFlags HAS_SHADOWING          = 0x01;
-    static constexpr RenderFlags HAS_DIRECTIONAL_LIGHT  = 0x02;
-    static constexpr RenderFlags HAS_DYNAMIC_LIGHTING   = 0x04;
+    static constexpr RenderFlags HAS_SHADOWING           = 0x01;
+    static constexpr RenderFlags HAS_DIRECTIONAL_LIGHT   = 0x02;
+    static constexpr RenderFlags HAS_DYNAMIC_LIGHTING    = 0x04;
+    static constexpr RenderFlags HAS_INVERSE_FRONT_FACES = 0x08;
 
 
-    RenderPass(const char* name) noexcept : mName(name) { }
+    RenderPass(FEngine& engine, utils::GrowingSlice<Command>& commands) noexcept;
+    void overridePolygonOffset(backend::PolygonOffset* polygonOffset) noexcept;
+    void setGeometry(FScene& scene, utils::Range<uint32_t> vr) noexcept;
+    void setCamera(const CameraInfo& camera) noexcept;
+    void setRenderFlags(RenderFlags flags) noexcept;
+    Command const* appendSortedCommands(CommandTypeFlags const commandTypeFlags) noexcept;
+    void execute(const char* name,
+            backend::Handle<backend::HwRenderTarget> renderTarget,
+            backend::RenderPassParams params,
+            Command const* first, Command const* last) const noexcept;
 
-    virtual ~RenderPass() noexcept;
+    utils::GrowingSlice<Command>& getCommands() { return mCommands; }
+    utils::Slice<Command> const& getCommands() const { return mCommands; }
 
-    // appends rendering commands for the given view
-    void render(
-            FEngine& engine, utils::JobSystem& js,
-            FScene::RenderableSoa const& soa, utils::Range<uint32_t> visibleRenderables,
-            uint32_t commandTypeFlags, RenderFlags renderFlags,
-            const CameraInfo& camera, Viewport const& viewport,
-            utils::GrowingSlice<Command>& commands) noexcept;
-
-private:
-    // Called just before rendering, make sure all needed asynchronous tasks are finished.
-    // Set-up the render-target as needed. At least call driver.beginRenderPass().
-    virtual void beginRenderPass(
-            driver::DriverApi& driver, Viewport const& viewport,
-            const CameraInfo& camera) noexcept = 0;
-
-    // Called just after rendering. Do what you have to do,
-    // but at least call driver.endRenderPass().
-    virtual void endRenderPass(driver::DriverApi& driver, Viewport const& viewport) noexcept = 0;
+    size_t getCommandsHighWatermark() const noexcept {
+        return mCommandsHighWatermark * sizeof(Command);
+    }
 
 private:
     friend class FRenderer;
@@ -237,7 +247,7 @@ private:
     static_assert(JOBS_PARALLEL_FOR_COMMANDS_SIZE % utils::CACHELINE_SIZE == 0,
             "Size of Commands jobs must be multiple of a cache-line size");
 
-    static inline void generateCommands(uint32_t commandTypeFlags, Command* const commands,
+    static inline void generateCommands(uint32_t commandTypeFlags, Command* commands,
             FScene::RenderableSoa const& soa, utils::Range<uint32_t> range, RenderFlags renderFlags,
             math::float3 cameraPosition, math::float3 cameraForward) noexcept;
 
@@ -247,15 +257,24 @@ private:
             math::float3 cameraForward) noexcept;
 
     static void setupColorCommand(Command& cmdDraw, bool hasDepthPass,
-            FMaterialInstance const* const mi) noexcept;
+            FMaterialInstance const* mi) noexcept;
 
-    static void recordDriverCommands(FEngine::DriverApi& driver,
-            utils::Slice<Command> const& commands) noexcept;
+    void recordDriverCommands(FEngine::DriverApi& driver, FScene& scene,
+            const Command* first, const Command* last) const noexcept;
 
     static void updateSummedPrimitiveCounts(
             FScene::RenderableSoa& renderableData, utils::Range<uint32_t> vr) noexcept;
 
-    const char* const mName;
+
+    FEngine& mEngine;
+    utils::GrowingSlice<Command>& mCommands;
+    FScene* mScene = nullptr;
+    utils::Range<uint32_t> mVisibleRenderables{};
+    CameraInfo mCamera;
+    RenderFlags mFlags{};
+    bool mPolygonOffsetOverride = false;
+    backend::PolygonOffset mPolygonOffset{};
+    size_t mCommandsHighWatermark = 0;
 };
 
 } // namespace details

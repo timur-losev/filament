@@ -193,7 +193,7 @@ const JsonLexeme* JsonishParser::peekCurrentLexemeType() const noexcept {
 
 JsonishObject* JsonishParser::parseMembers() noexcept {
     JsonishObject* object = new JsonishObject();
-    while (1) {
+    while (true) {
         JsonishPair pair = parsePair();
         if (!pair.value) {
             // Accept a comma after the last element
@@ -203,9 +203,11 @@ JsonishObject* JsonishParser::parseMembers() noexcept {
             }
 
             reportError("unable to parse pair");
+
             delete object;
             return nullptr;
         }
+
         object->addPair(pair);
 
         // Is there a comma and more pairs?
@@ -218,8 +220,8 @@ JsonishObject* JsonishParser::parseMembers() noexcept {
 
 JsonishArray* JsonishParser::parseElements() noexcept {
     JsonishArray* array = new JsonishArray();
-    while (1) {
 
+    while (true) {
         JsonishValue* value = parseValue();
         if (!value) {
             reportError("unable to read value");
@@ -233,7 +235,25 @@ JsonishArray* JsonishParser::parseElements() noexcept {
             break;
         }
     }
+
     return array;
+}
+
+// Strings optionally have an array suffix, as in: "float[9]". To handle this we parse the array
+// value (which might be multidimensional), discard the parsed value, and append it to the string.
+JsonishValue* JsonishParser::parseString() noexcept {
+    std::string tmp;
+    const JsonLexeme* strLexeme = consumeLexeme(STRING);
+    const JsonLexeme* arrLexeme = peekNextLexemeType();
+    JsonishValue* arrValue;
+    if (arrLexeme && arrLexeme->getType() == ARRAY_START && (arrValue = parseArray())) {
+        delete arrValue;
+        size_t length = mLexemes[mCursor].getStart() - strLexeme->getStart();
+        tmp = std::string(strLexeme->getStart(), length);
+    } else {
+        tmp = std::string(strLexeme->getStart(), strLexeme->getSize());
+    }
+    return new JsonishString(std::move(tmp));
 }
 
 JsonishValue* JsonishParser::parseValue() noexcept {
@@ -241,21 +261,20 @@ JsonishValue* JsonishParser::parseValue() noexcept {
     if (next == nullptr) {
         return nullptr;
     }
-    std::string tmp(next->getStart(), next->getSize());
+
     switch (next->getType()) {
         case STRING:
-            consumeLexeme(STRING);
-            return new JsonishString(std::move(tmp));
+            return parseString();
         case NUMBER:
             consumeLexeme(NUMBER);
-            return new JsonishNumber(static_cast<float>(atof(tmp.c_str())));
+            return new JsonishNumber(strtof(next->getStart(), nullptr));
         case BLOCK_START:
             return parseObject();
         case ARRAY_START:
             return parseArray();
         case BOOLEAN:
             consumeLexeme(BOOLEAN);
-            return new JsonishBool(tmp == "true");
+            return new JsonishBool(!strncmp(next->getStart(), "true", next->getSize()));
         case NUll:
             consumeLexeme(NUll);
             return new JsonishNull();
@@ -269,11 +288,14 @@ void JsonishParser::reportError(const char* message) noexcept {
     if (mErrorReported) {
         return;
     }
+
     std::cerr << "Syntax error, " << message;
+
     const JsonLexeme* lexeme = peekNextLexemeType();
     if (lexeme == nullptr) {
         lexeme = peekCurrentLexemeType();
     }
+
     if (lexeme != nullptr) {
         std::cerr << " at line:" << lexeme->getLine()
                << " position:" << lexeme->getLinePosition() << std::endl
@@ -283,6 +305,7 @@ void JsonishParser::reportError(const char* message) noexcept {
     } else {
         std::cerr << " but reached end of file instead." << std::endl;
     }
+
     mErrorReported = true;
 }
 

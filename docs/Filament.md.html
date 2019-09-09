@@ -2,6 +2,8 @@
 
 <style>img { max-width: 100%; }</style>
 
+**Physically Based Rendering in Filament**
+
 ![](images/filament_logo.png)
 
 # About
@@ -91,7 +93,7 @@ $h$                          | Half unit vector between $l$ and $v$
 $f$                          | BRDF
 $\fDiffuse$                  | Diffuse component of a BRDF
 $\fSpecular$                 | Specular component of a BRDF
-$\alpha$                     | Perceptually linear roughness
+$\alpha$                     | Roughness, remapped from using input `perceptualRoughness`
 $\sigma$                     | Diffuse reflectance
 $\Omega$                     | Spherical domain
 $\fNormal$                   | Reflectance at normal incidence
@@ -147,6 +149,9 @@ A microfacet BRDF is heavily influenced by a _roughness_ parameter which describ
 Figure [roughness] shows surfaces of different roughness and how light interacts with them.
 
 ![Figure [roughness]: Varying roughness (from left to right, rough to smooth) and the resulting BRDF specular component lobe](images/diagram_roughness.png)
+
+!!! Note: About roughness
+    The roughness parameter as set by the user is called `perceptualRoughness` in the shader snippets throughout this document. The variable called `roughness` is the `perceptualRoughness` with a remapping explained in section [Parameterization].
 
 A microfacet model is described by the following equation (where x stands for the specular or diffuse component):
 
@@ -214,9 +219,9 @@ D_{GGX}(h,\alpha) = \frac{\aa}{\pi ( (\NoH)^2 (\aa - 1) + 1)^2}
 The GLSL implementation of the NDF, shown in listing [specularD], is simple and efficient.
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-float D_GGX(float NoH, float linearRoughness) {
-    float a = NoH * linearRoughness;
-    float k = linearRoughness / (1.0 - NoH * NoH + a * a);
+float D_GGX(float NoH, float roughness) {
+    float a = NoH * roughness;
+    float k = roughness / (1.0 - NoH * NoH + a * a);
     return k * k * (1.0 / PI);
 }
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -236,10 +241,10 @@ Since both $n$ and $h$ are unit vectors, $|n \times h|^2 = 1 - (\NoH)^2$. This a
 #define MEDIUMP_FLT_MAX    65504.0
 #define saturateMediump(x) min(x, MEDIUMP_FLT_MAX)
 
-float D_GGX(float linearRoughness, float NoH, const vec3 n, const vec3 h) {
+float D_GGX(float roughness, float NoH, const vec3 n, const vec3 h) {
     vec3 NxH = cross(n, h);
-    float a = NoH * linearRoughness;
-    float k = linearRoughness / (dot(NxH, NxH) + a * a);
+    float a = NoH * roughness;
+    float k = roughness / (dot(NxH, NxH) + a * a);
     float d = k * k * (1.0 / PI);
     return saturateMediump(d);
 }
@@ -266,7 +271,7 @@ $$\begin{equation}
 G(v,l,\alpha) = \frac{2 (\NoL)}{\NoL + \sqrt{\aa + (1 - \aa) (\NoL)^2}} \frac{2 (\NoV)}{\NoV + \sqrt{\aa + (1 - \aa) (\NoV)^2}}
 \end{equation}$$
 
-We can observe that the dividends $2 (n \cdot l)$ and $2 (n \cdot v)$ allow us to simplify the original function $f_r$ by introducing a visibility function $V$:
+We can observe that the dividends $2 (\NoL)$ and $2 (n \cdot v)$ allow us to simplify the original function $f_r$ by introducing a visibility function $V$:
 
 $$\begin{equation}
 f_r(v,l) = D(h, \alpha) V(v, l, \alpha) F(v, h, f_0)
@@ -309,8 +314,8 @@ V(v,l,\alpha) = \frac{0.5}{\NoL \sqrt{(\NoV)^2 (1 - \aa) + \aa} + \NoV \sqrt{(\N
 The GLSL implementation of the visibility term, shown in listing [specularV], is a bit more expensive than we would like since it requires two `sqrt` operations.
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-float V_SmithGGXCorrelated(float NoV, float NoL, float linearRoughness) {
-    float a2 = linearRoughness * linearRoughness;
+float V_SmithGGXCorrelated(float NoV, float NoL, float roughness) {
+    float a2 = roughness * roughness;
     float GGXV = NoL * sqrt(NoV * NoV * (1.0 - a2) + a2);
     float GGXL = NoV * sqrt(NoL * NoL * (1.0 - a2) + a2);
     return 0.5 / (GGXV + GGXL);
@@ -327,8 +332,8 @@ V(v,l,\alpha) = \frac{0.5}{\NoL (\NoV (1 - \alpha) + \alpha) + \NoV (\NoL (1 - \
 This approximation is mathematically wrong but saves two square root operations and is good enough for real-time mobile applications, as shown in listing [approximatedSpecularV].
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-float V_SmithGGXCorrelatedFast(float NoV, float NoL, float linearRoughness) {
-    float a = linearRoughness;
+float V_SmithGGXCorrelatedFast(float NoV, float NoL, float roughness) {
+    float a = roughness;
     float GGXV = NoL * (NoV * (1.0 - a) + a);
     float GGXL = NoV * (NoL * (1.0 - a) + a);
     return 0.5 / (GGXV + GGXL);
@@ -419,15 +424,13 @@ $$\begin{equation}
 \fGrazing=0.5 + 2 \cdot \alpha cos^2(\theta_d)
 \end{equation}$$
 
-It is important to note that the roughness used in this formula is the perceptually linear roughness (more on this in section [Parameterization]).
-
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 float F_Schlick(float VoH, float f0, float f90) {
     return f0 + (f90 - f0) * pow(1.0 - VoH, 5.0);
 }
 
-float Fd_Burley(float NoV, float NoL, float LoH, float linearRoughness) {
-    float f90 = 0.5 + 2.0 * linearRoughness * LoH * LoH;
+float Fd_Burley(float NoV, float NoL, float LoH, float roughness) {
+    float f90 = 0.5 + 2.0 * roughness * LoH * LoH;
     float lightScatter = F_Schlick(NoL, 1.0, f90);
     float viewScatter = F_Schlick(NoV, 1.0, f90);
     return lightScatter * viewScatter * (1.0 / PI);
@@ -479,12 +482,12 @@ void BRDF(...) {
     float NoH = clamp(dot(n, h), 0.0, 1.0);
     float LoH = clamp(dot(l, h), 0.0, 1.0);
 
-    // perceptually linear roughness (see parameterization)
-    float a = roughness * roughness;
+    // perceptually linear roughness to roughness (see parameterization)
+    float roughness = perceptualRoughness * perceptualRoughness;
 
     float D = D_GGX(NoH, a);
     vec3  F = F_Schlick(LoH, f0);
-    float V = V_SmithGGXCorrelated(NoV, NoL, a);
+    float V = V_SmithGGXCorrelated(NoV, NoL, roughness);
 
     // specular BRDF
     vec3 Fr = (D * V) * F;
@@ -509,21 +512,21 @@ The Lambert diffuse BRDF does not account for the light that reflects at the sur
 
 ### Energy loss in specular reflectance
 
-The Cook-Torrance BRDF we presented earlier attempts to model several events at the microfacet level but does so by accounting for a single bounce of light. This approximation can cause a loss of energy at high roughness. Figure [singleVsMultiBounce] shows why this loss of energy occurs. In the single bounce (or single scattering) model, a ray of light hitting the surface can be reflected back onto another microfacet and thus be discarded because of the masking and shadowing term. If we however account for multiple bounces (multiscattering), the same ray of light might escape the microfacet field and be reflected back towards the viewer.
+The Cook-Torrance BRDF we presented earlier attempts to model several events at the microfacet level but does so by accounting for a single bounce of light. This approximation can cause a loss of energy at high roughness, the surface is not energy preserving. Figure [singleVsMultiBounce] shows why this loss of energy occurs. In the single bounce (or single scattering) model, a ray of light hitting the surface can be reflected back onto another microfacet and thus be discarded because of the masking and shadowing term. If we however account for multiple bounces (multiscattering), the same ray of light might escape the microfacet field and be reflected back towards the viewer.
 
 ![Figure [singleVsMultiBounce]: Single scattering (left) vs multiscattering](images/diagram_single_vs_multi_scatter.png)
 
-Based on this simple explanation, we can intuitively deduce that the rougher a surface is, the higher the chances are that energy gets lost because of the failure to account for multiple scattering events. This loss of energy appears to darken rough materials. Metallic surfaces are particularly affected because all of their reflectance is specular. This darkening effect is illustrated in figure [metallicRoughEnergyLoss]. With multiscattering energy conservation can be achieved, as shown in figure [metallicRoughEnergyConservation].
+Based on this simple explanation, we can intuitively deduce that the rougher a surface is, the higher the chances are that energy gets lost because of the failure to account for multiple scattering events. This loss of energy appears to darken rough materials. Metallic surfaces are particularly affected because all of their reflectance is specular. This darkening effect is illustrated in figure [metallicRoughEnergyLoss]. With multiscattering, energy preservation can be achieved, as shown in figure [metallicRoughEnergyPreservation].
 
 ![Figure [metallicRoughEnergyLoss]: Darkening increases with roughness due to single scattering](images/material_metallic_energy_loss.png)
 
-![Figure [metallicRoughEnergyConservation]: Energy conservation with multiscattering](images/material_metallic_energy_conservation.png)
+![Figure [metallicRoughEnergyPreservation]: Energy preservation with multiscattering](images/material_metallic_energy_preservation.png)
 
-We can use a white furnace, a uniform lighting environment set to pure white, to validate the energy conservative property of a BRDF. When energy conservation is achieved, a purely reflective metallic surface ($\fNormal = 1$) should be indistinguishable from the background, no matter the roughness of said surface. Figure [whiteFurnaceLoss] shows what such a surface looks like with the specular BRDF presented in the previous sections. The loss of energy as the roughness increases is obvious. In contrast, figure [whiteFurnaceConservation] shows that accounting for multiscattering events addresses the energy loss.
+We can use a white furnace, a uniform lighting environment set to pure white, to validate the energy preservation property of a BRDF. When energy preservation is achieved, a purely reflective metallic surface ($\fNormal = 1$) should be indistinguishable from the background, no matter the roughness of said surface. Figure [whiteFurnaceLoss] shows what such a surface looks like with the specular BRDF presented in the previous sections. The loss of energy as the roughness increases is obvious. In contrast, figure [whiteFurnacePreservation] shows that accounting for multiscattering events addresses the energy loss.
 
 ![Figure [whiteFurnaceLoss]: Darkening increases with roughness due to single scattering](images/material_furnace_energy_loss.png)
 
-![Figure [whiteFurnaceConservation]: Energy conservation with multiscattering](images/material_furnace_energy_conservation.png)
+![Figure [whiteFurnacePreservation]: Energy preservation with multiscattering](images/material_furnace_energy_preservation.png)
 
 Multiple-scattering microfacet BRDFs are discussed in depth in [#Heitz16]. Unfortunately this paper only presents a stochastic evaluation of the multiscattering BRDF. This solution is therefore not suitable for real-time rendering. Kulla and Conty present a different approach in [#Kulla17]. Their idea is to add an energy compensation term as an additional BRDF lobe shown in equation $\ref{energyCompensationLobe}$:
 
@@ -735,13 +738,13 @@ vec3 f0 = 0.16 * reflectance * reflectance * (1.0 - metallic) + baseColor * meta
 
 #### Roughness remapping and clamping
 
-The roughness is remapped to a perceptually linear range using the following formulation:
+The roughness set by the user, called `perceptualRoughness` here, is remapped to a perceptually linear range using the following formulation:
 
 $$\begin{equation}
-\alpha = roughness^2
+\alpha = perceptualRoughness^2
 \end{equation}$$
 
-Figure [roughness_remap] shows a silver metallic surface with increasing roughness (from 0.0 to 1.0), using the unmodified roughness value (bottom) and the perceptually linear roughness value (top).
+Figure [roughness_remap] shows a silver metallic surface with increasing roughness (from 0.0 to 1.0), using the unmodified roughness value (bottom) and the remapped value (top).
 
 ![Figure [roughness_remap]: Roughness remapping comparison: perceptually linear roughness (top) and roughness (bottom)](images/material_roughness_remap.png)
 
@@ -751,7 +754,7 @@ Brent Burley made similar observations in his presentation [#Burley12]. After ex
 
 Last but not least, it is important to note that the roughness parameters is used in various computations at runtime where limited floating point precision can become an issue. For instance, _mediump_ precision floats are often implemented as half-floats (fp16) on mobile GPUs.
 
-This cause problems when computing small values like $\frac{1}{roughness^4}$ in our lighting equations (perceptually linear roughness squared in the GGX computation). The smallest value that can be represented as a half-float is $2^{-14}$ or $6.1 \times 10^{-5}$. To avoid divisions by 0 on devices that do not support denormals, the result of $\frac{1}{roughness^4}$ must therefore not be lower than $6.1 \times 10^{-5}$. To do so, we must clamp the roughness to 0.089, which gives us $6.274 \times 10^{-5}$. 
+This cause problems when computing small values like $\frac{1}{perceptualRoughness^4}$ in our lighting equations (roughness squared in the GGX computation). The smallest value that can be represented as a half-float is $2^{-14}$ or $6.1 \times 10^{-5}$. To avoid divisions by 0 on devices that do not support denormals, the result of $\frac{1}{roughness^4}$ must therefore not be lower than $6.1 \times 10^{-5}$. To do so, we must clamp the roughness to 0.089, which gives us $6.274 \times 10^{-5}$. 
 
 Denormals should also be avoided to prevent performance drops. The roughness can also not be set to 0 to avoid obvious divisions by 0.
 
@@ -848,10 +851,10 @@ This corresponds to a Fresnel reflectance of 4% that we know is associated with 
 Because we must take into account the loss of energy caused by the addition of the clear coat layer, we can reformulate the BRDF from equation $\ref{brdf}$ thusly:
 
 $$\begin{equation}
-f(v,l)=\fDiffuse(n,l) (1 - F_c) + \fSpecular(n,l) (1 - F_c)^2 + f_c(n,l)
+f(v,l)=\fDiffuse(n,l) (1 - F_c) + \fSpecular(n,l) (1 - F_c) + f_c(n,l)
 \end{equation}$$
 
-Where $F_c$ is the Fresnel term of the clear coat BRDF and $f_c$ the clear coat BRDF. The multiplication by $(1 - F_c)^2$ of the specular component is to remain energy conservative as the light enters and exists the clear coat layer. The multiplication by $1 - F_c$ of the diffuse component is an attempt at energy conservation.
+Where $F_c$ is the Fresnel term of the clear coat BRDF and $f_c$ the clear coat BRDF 
 
 ### Clear coat parameterization
 
@@ -864,7 +867,7 @@ The clear coat material model encompasses all the parameters previously defined 
 **ClearCoatRoughness** | Perceived smoothness or roughness of the clear coat layer. Scalar between 0 and 1
 [Table [clearCoatParameters]: Clear coat model parameters]
 
-The clear coat roughness parameter is remapped and clamped in a similar way to the roughness parameter of the standard material. The main difference is that we want to lower the clear coat roughness range from [0..1] to the smaller [0..0.6] range. This remapping is arbitrary but matches the fact that clear coat layers are almost always glossy. The remapped value is squared to produce a perceptually linear roughness value.
+The clear coat roughness parameter is remapped and clamped in a similar way to the roughness parameter of the standard material.
 
 Figure [clearCoat] and figure [clearCoatRoughness] show how the clear coat parameters affect the appearance of a surface.
 
@@ -879,12 +882,12 @@ void BRDF(...) {
     // compute Fd and Fr from standard model
 
     // remapping and linearization of clear coat roughness
-    clearCoatRoughness = mix(0.089, 0.6, clearCoatRoughness);
-    clearCoatLinearRoughness = clearCoatRoughness * clearCoatRoughness;
+    clearCoatPerceptualRoughness = clamp(clearCoatPerceptualRoughness, 0.089, 1.0);
+    clearCoatRoughness = clearCoatPerceptualRoughness * clearCoatPerceptualRoughness;
 
     // clear coat BRDF
-    float  Dc = D_GGX(clearCoatLinearRoughness, NoH);
-    float  Vc = V_Kelemen(clearCoatLinearRoughness, LoH);
+    float  Dc = D_GGX(clearCoatRoughness, NoH);
+    float  Vc = V_Kelemen(clearCoatRoughness, LoH);
     float  Fc = F_Schlick(0.04, LoH) * clearCoat; // clear coat strength
     float Frc = (Dc * Vc) * Fc;
 
@@ -915,10 +918,10 @@ $$
 Since the clear coat layer's IOR is fixed, we can combine both steps to simplify:
 
 $$
-f_{0_{base}} = \frac{\left( 1 - 5 \sqrt{\fNormal} \right) ^2}{\left( 5 \sqrt{\fNormal} \right) ^2}
+f_{0_{base}} = \frac{\left( 1 - 5 \sqrt{\fNormal} \right) ^2}{\left( 5 - \sqrt{\fNormal} \right) ^2}
 $$
 
-We should also modify the base layer's apparent roughness based based on the IOR of the clear coat layer but this is something we have opted to leave out for now.
+We should also modify the base layer's apparent roughness based on the IOR of the clear coat layer but this is something we have opted to leave out for now.
 
 ## Anisotropic model
 
@@ -966,17 +969,18 @@ Note that this NDF requires the tangent and bitangent directions in addition to 
 The resulting implementation is described in listing [anisotropicBRDF].
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-float at = max(linearRoughness * (1.0 + anisotropy), 0.001);
-float ab = max(linearRoughness * (1.0 - anisotropy), 0.001);
+float at = max(roughness * (1.0 + anisotropy), 0.001);
+float ab = max(roughness * (1.0 - anisotropy), 0.001);
 
 float D_GGX_Anisotropic(float NoH, const vec3 h,
         const vec3 t, const vec3 b, float at, float ab) {
     float ToH = dot(t, h);
     float BoH = dot(b, h);
     float a2 = at * ab;
-    vec3 v = vec3(ab * ToH, at * BoH, a2 * NoH);
-    // sq(x) returns x^2
-    return a2 * sq(a2 / dot(v, v)) * (1.0 / PI);
+    highp vec3 v = vec3(ab * ToH, at * BoH, a2 * NoH);
+    highp float v2 = dot(v, v);
+    float w2 = a2 / v2;
+    return a2 * w2 * w2 * (1.0 / PI);
 }
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 [Listing [anisotropicBRDF]: Implementation of Burley's anisotropic NDF in GLSL]
@@ -1008,8 +1012,8 @@ V_{aniso}(\NoL,\NoV,\alpha) = \frac{1}{2((\NoL)\hat{\Lambda}_v+(\NoV)\hat{\Lambd
 The term $ \hat{\Lambda}_v $ is the same for every light and can be computed only once if needed. The resulting implementation is described in listing [anisotropicV].
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-float at = max(linearRoughness * (1.0 + anisotropy), 0.001);
-float ab = max(linearRoughness * (1.0 - anisotropy), 0.001);
+float at = max(roughness * (1.0 + anisotropy), 0.001);
+float ab = max(roughness * (1.0 - anisotropy), 0.001);
 
 float V_SmithGGXCorrelated_Anisotropic(float at, float ab, float ToV, float BoV,
         float ToL, float BoL, float NoV, float NoL) {
@@ -1055,7 +1059,7 @@ Figure [materialCloth] shows how a traditional microfacet BRDF fails to capture 
 
 ![Figure [materialCloth]: Comparison of denim fabric rendered using a traditional microfacet BRDF (left) and our cloth BRDF (right)](images/screenshot_cloth.png)
 
-Velvet is an interesting use case for a cloth material model. As shown in figure [materialVelvet] this type of fabric exhibits strong rim lighting due to forward and backward scattering. These scattering events are caused by fibers standing straight at the surface of the fabric. When the incident light comes from the direction opposite to the view direction, the fibers will forward-scatter the light. Similarly, when the incident light from from the same direction as the view direction, the fibers will scatter the light backward.
+Velvet is an interesting use case for a cloth material model. As shown in figure [materialVelvet] this type of fabric exhibits strong rim lighting due to forward and backward scattering. These scattering events are caused by fibers standing straight at the surface of the fabric. When the incident light comes from the direction opposite to the view direction, the fibers will forward-scatter the light. Similarly, when the incident light from the same direction as the view direction, the fibers will scatter the light backward.
 
 ![Figure [materialVelvet]: Velvet fabric showcasing forward and backward scattering](images/screenshot_cloth_velvet.png)
 
@@ -1080,15 +1084,15 @@ D_{velvet}(v,h,\alpha) = \frac{1}{\pi(1 + 4\alpha^2)} (1 + 4 \frac{exp\left(\fra
 For the full specular BRDF, we also follow [#Neubelt13] and replace the traditional denominator with a smoother variant:
 
 $$\begin{equation}\label{clothSpecularBRDF}
-f_{r}(v,h,\alpha) = \frac{F(v,h) D_{velvet}(v,h,\alpha)}{4(\NoL + \NoV - (\NoL)(\NoV))}
+f_{r}(v,h,\alpha) = \frac{D_{velvet}(v,h,\alpha)}{4(\NoL + \NoV - (\NoL)(\NoV))}
 \end{equation}$$
 
-The implementation of the velvet NDF is presented in listing [clothBRDF], optimized to properly fit in half float formats and to avoid computing a costly cotangent, relying instead on trigonometric identities.
+The implementation of the velvet NDF is presented in listing [clothBRDF], optimized to properly fit in half float formats and to avoid computing a costly cotangent, relying instead on trigonometric identities. Note that we removed the Fresnel component from this BRDF.
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-float D_Ashikhmin(float linearRoughness, float NoH) {
+float D_Ashikhmin(float roughness, float NoH) {
     // Ashikhmin 2007, "Distribution-based BRDFs"
-	float a2 = linearRoughness * linearRoughness;
+	float a2 = roughness * roughness;
 	float cos2h = NoH * NoH;
 	float sin2h = max(1.0 - cos2h, 0.0078125); // 2^(-14/2), so sin2h^2 > 0 in fp16
 	float sin4h = sin2h * sin2h;
@@ -1108,9 +1112,9 @@ D(m) = \frac{(2 + \frac{1}{\alpha}) sin(\theta)^{\frac{1}{\alpha}}}{2 \pi}
 The implementation of this NDF is presented in listing [clothCharlieBRDF], optimized to properly fit in half float formats.
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-float D_Charlie(float linearRoughness, float NoH) {
+float D_Charlie(float roughness, float NoH) {
     // Estevez and Kulla 2017, "Production Friendly Microfacet Sheen BRDF"
-    float invAlpha  = 1.0 / linearRoughness;
+    float invAlpha  = 1.0 / roughness;
     float cos2h = NoH * NoH;
     float sin2h = max(1.0 - cos2h, 0.0078125); // 2^(-14/2), so sin2h^2 > 0 in fp16
     return (2.0 + invAlpha) * pow(sin2h, invAlpha * 0.5) / (2.0 * PI);
@@ -1151,13 +1155,13 @@ The complete implementation of our cloth BRDF, including sheen color and optiona
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // specular BRDF
-float D = distributionCloth(linearRoughness, NoH);
+float D = distributionCloth(roughness, NoH);
 float V = visibilityCloth(NoV, NoL);
-vec3  F = fresnel(sheenColor, LoH);
+vec3  F = sheenColor;
 vec3 Fr = (D * V) * F;
 
 // diffuse BRDF
-float diffuse = diffuse(linearRoughness, NoV, NoL, LoH);
+float diffuse = diffuse(roughness, NoV, NoL, LoH);
 #if defined(MATERIAL_HAS_SUBSURFACE_COLOR)
 // energy conservative wrap diffuse
 diffuse *= saturate((dot(n, light.l) + 0.5) / 2.25);
@@ -1334,7 +1338,7 @@ float NoL = clamp(dot(n, l), 0.0, 1.0);
 // lightIntensity is the illuminance
 // at perpendicular incidence in lux
 float illuminance = lightIntensity * NoL;
-float luminance = BSDF(v, l) * illuminance;
+vec3 luminance = BSDF(v, l) * illuminance;
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 [Listing [glslDirectionalLight]: Implementation of directional lights in GLSL]
 
@@ -1488,7 +1492,7 @@ vec3 evaluatePunctualLight() {
     attenuation  = getSquareFalloffAttenuation(posToLight, lightInvRadius);
     attenuation *= getSpotAngleAttenuation(l, lightDir, innerAngle, outerAngle);
 
-    float luminance = (BSDF(v, l) * lightIntensity * attenuation * NoL) * lightColor;
+    vec3 luminance = (BSDF(v, l) * lightIntensity * attenuation * NoL) * lightColor;
     return luminance;
 }
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1770,7 +1774,7 @@ The whole environment contributes light to a given point on the object's surface
 The radiance $L_{out}$ resulting from the interaction between an image based light's (IBL) irradiance and a material model (BRDF) $f(\Theta)$[^ibl1] is computed as follows:
 
 $$\begin{equation}
-L_{out}(n, v, \Theta) = \int_\Omega  f(l, v, \Theta) L_{\bot}(l) \left< n \cdot l\right> dl 
+L_{out}(n, v, \Theta) = \int_\Omega  f(l, v, \Theta) L_{\bot}(l) \left< \NoL \right> dl 
 \end{equation}$$ 
 
 Note that here we're looking at the behavior of the surface at **macro** level (not to be confused with the micro level equation), which is why it only depends on $\vec n$ and $\vec v$. Essentially, we're applying the BRDF to “point-lights” coming from all directions and encoded in the IBL.
@@ -1824,10 +1828,10 @@ Using the Lambertian BRDF[^iblDiffuse1], we get the radiance:
 $$
 \begin{align*}
    f_d(\sigma) &= \frac{\sigma}{\pi} \\
-L_d(n, \sigma) &= \int_{\Omega} f_d(\sigma) L_{\bot}(l) \left< n \cdot l \right> dl \\
-               &= \frac{\sigma}{\pi} \int_{\Omega} L_{\bot}(l) \left< n \cdot l \right> dl \\
+L_d(n, \sigma) &= \int_{\Omega} f_d(\sigma) L_{\bot}(l) \left< \NoL \right> dl \\
+               &= \frac{\sigma}{\pi} \int_{\Omega} L_{\bot}(l) \left< \NoL \right> dl \\
                &= \frac{\sigma}{\pi} E_d(n) \quad \text{with the irradiance} \; 
-        E_d(n) = \int_{\Omega} L_{\bot}(l) \left< n \cdot l \right> dl
+        E_d(n) = \int_{\Omega} L_{\bot}(l) \left< \NoL \right> dl
 \end{align*}
 $$
 
@@ -1842,6 +1846,18 @@ The irradiance integral $\Ed$ can be trivially, albeit slowly[^iblDiffuse3], pre
 ![Figure [iblOriginal]: Image-based environment](images/ibl/ibl_river_roughness_m0.png style="max-width:100%;")
 
 ![Figure [iblIrradiance]: Image-based irradiance map using the Lambertian BRDF](images/ibl/ibl_irradiance.png style="max-width:100%;")
+
+
+[^ibl1]: $\Theta$ represents the parameters of the material model $f$, i.e.: _roughness_, albedo and so on...
+
+[^iblTypes1]: This can be done through blending of static probes or by spreading the workload over time
+
+[^iblDiffuse1]: The Lambertian BRDF doesn't depend on $\vec l$, $\vec v$ or $\theta$, so $L_d(n,v,\theta) \equiv L_d(n,\sigma)$
+
+[^iblDiffuse2]: $\Omega_s$ can be approximated by $\frac{2\pi}{6 \cdot width \cdot height}$ for a cubemap
+
+[^iblDiffuse3]: $O(12\,n^2\,m^2)$, with $n$ and $m$ respectively the dimensions of the environment and the precomputed cubemap
+
 
 However, the irradiance can also be approximated very closely by a decomposition into Spherical Harmonics (SH, described in more details in the Spherical Harmonics section) and calculated at runtime cheaply. It is usually best to avoid texture fetches on mobile and free-up a texture unit. Even if it is stored into a cubemap, it is orders of magnitude faster to pre-compute the integral using SH decomposition followed by a rendering.
 
@@ -1888,147 +1904,225 @@ Additionally, because of the pre-scaling by $K_l^m$, the SH coefficients can be 
 As we've seen above, the radiance $\Lout$ resulting from the interaction between an IBL's irradiance and a BRDF is:
 
 $$\begin{equation}\label{specularBRDFIntegration}
-\Lout(n, v, \Theta) = \int_\Omega f(l, v, \Theta) \Lt(l) \left< \NoL \right> dl 
+\Lout(n, v, \Theta) = \int_\Omega f(l, v, \Theta) \Lt(l) \left< \NoL \right> \partial l 
 \end{equation}$$ 
 
-We recognize the convolution of $\Lt$ by $f(l, v, \Theta) \left< \NoL \right>$, i.e.: the IBL is filtered by the BRDF.
+We recognize the convolution of $\Lt$ by $f(l, v, \Theta) \left< \NoL \right>$, 
+i.e.: the environment is *filtered* using the BRDF as a kernel. Indeed at higher roughness, 
+specular reflections look more *blurry*.
+ 
 Plugging the expression of $f$ in equation $\ref{specularBRDFIntegration}$, we obtain:
 
 $$\begin{equation}
-\Lout(n,v,\Theta) = \int_\Omega D(l, v, \alpha) F(l, v, f_0, f_{90}) V(l, v, \alpha) \left< \NoL \right> \Lt(l) dl
+\Lout(n,v,\Theta) = \int_\Omega D(l, v, \alpha) F(l, v, f_0, f_{90}) V(l, v, \alpha) \left< \NoL \right> \Lt(l) \partial l
 \end{equation}$$ 
 
-This expression depends on $\vec v$, $\alpha$, $\fNormal$ and $\fGrazing$ inside the integral, which makes its evaluation extremely costly and unsuitable for real-time on mobile (even using pre-filtered importance sampling). 
+This expression depends on $v$, $\alpha$, $f_0$ and $f_{90}$ inside the integral, 
+which makes its evaluation extremely costly and unsuitable for real-time on mobile 
+(even using pre-filtered importance sampling). 
 
 ##### Simplifying the BRDF integration #####
 
-In order to find a suitable approximation, let's first look at the special case where $\Lt(l) = \Lt^{constant}$:
+Since there is no closed-form solution or an easy way to compute the $\Lout$ integral, we use a simplified
+equation instead: $\hat{I}$, whereby we assume that $v = n$, that is the view direction $v$ is always
+equal to the surface normal $n$. Clearly, this assumption will break all view-dependant effects of 
+the convolution, such as the increased blur in reflections closer to the viewer 
+(a.k.a. stretchy reflections). 
 
-$$\begin{equation}\label{iblDFV}
-\Lout(n,v,\Theta) = \Lt^{constant} \int_\Omega D(l, v, \alpha) F(l, v, f_0, f_{90}) V(l, v, \alpha) \left< \NoL \right> dl
+Such a simplification would also have a severe impact on constant environments, such as the white 
+furnace, because it would affect the magnitude of the constant (i.e. DC) term of the result. We
+can at least correct for that by using a scale factor, $K$, in our simplified integral, which
+will make sure the average irradiance stay correct when chosen properly.
+
+    - $I$ is our original integral, i.e.: $I(g) = \int_\Omega g(l) \left< \NoL \right> \partial l$
+    - $\hat{I}$ is the simplified integral where $v = n$
+    - $K$ is a scale factor that ensures the average irradiance is unchanged by $\hat{I}$
+    - $\tilde{I}$ is our final approximation of $I$, $\tilde{I} = \hat{I} \times K$ 
+
+
+Because $I$ is an integral multiplications can be distributed over it. i.e.: $I(g()f()) = I(g())I(f())$.
+
+Armed with that,
+
+$$\begin{equation}
+I( f(\Theta) \Lt ) \approx \tilde{I}( f(\Theta) \Lt )                       \\
+\tilde{I}( f(\Theta) \Lt ) = K \times \hat{I}( f(\Theta) \Lt )              \\
+K = \frac{I(f(\Theta))}{\hat{I}(f(\Theta))}
+\end{equation}$$ 
+
+
+From the equation above we can see that $\tilde{I}$ is equivalent to $I$  when $\Lt$ is a constant,
+and yields the correct result:
+
+$$\begin{align*}
+\tilde{I}(f(\Theta)\Lt^{constant}) &= \Lt^{constant} \hat{I}(f(\Theta)) \frac{I(f(\Theta))}{\hat{I}(f(\Theta))} \\
+                                   &= \Lt^{constant} I(f(\Theta))                                               \\
+                                   &= I(f(\Theta)\Lt^{constant})
+\end{align*}$$
+
+
+Similarly, we can also demonstrate that the result is correct when $v = n$, since in that case $I = \hat{I}$:
+
+$$\begin{align*}
+\tilde{I}(f(\Theta)\Lt) &= I(f(\Theta)\Lt) \frac{I(f(\Theta))}{I(f(\Theta))}    \\
+                        &= I(f(\Theta)\Lt)
+\end{align*}$$
+
+Finally, we can show that the scale factor $K$ satisfies our average irradiance ($\bar{\Lt}$)
+requirement by plugging $\Lt = \bar{\Lt} + (\Lt - \bar{\Lt}) = \bar{\Lt} + \Delta\Lt$ into $\tilde{I}$:
+
+$$\begin{align*}
+\tilde{I}(f(\Theta)\Lt) &= \tilde{I}\left[f\left(\Theta\right) \left(\bar{\Lt} + \Delta\Lt\right)\right] \\
+                        &= K \times \hat{I}\left[f\left(\Theta\right) \left(\bar{\Lt} + \Delta\Lt\right)\right] \\
+                        &= K \times \left[\hat{I}\left(f\left(\Theta\right)\bar{\Lt}\right) + \hat{I}\left(f\left(\Theta\right)\Delta\Lt\right)\right] \\ 
+                        &= K \times \hat{I}\left(f\left(\Theta\right)\bar{\Lt}\right) + K \times \hat{I}\left(f\left(\Theta\right) \Delta\Lt\right) \\
+                        &= \tilde{I}\left(f\left(\Theta\right)\bar{\Lt}\right) + \tilde{I}\left(f\left(\Theta\right) \Delta\Lt\right) \\
+                        &= I\left(f\left(\Theta\right)\bar{\Lt}\right) + \tilde{I}\left(f\left(\Theta\right) \Delta\Lt\right)
+\end{align*}$$
+
+The above result shows that the average irradiance is computed correctly, i.e.: $I(f(\Theta)\bar{\Lt})$.
+
+A way to think about this approximation is that it splits the radiance $\Lt$ in two parts, 
+the average $\bar{\Lt}$ and the delta from the average $\Delta\Lt$ and computes the correct
+integration of the average part then adds the simplified integration of the delta part:
+
+$$\begin{equation}
+approximation(\Lt) = correct(\bar{\Lt}) + simplified(\Lt - \bar{\Lt})
+\end{equation}$$ 
+
+
+
+Now, let's look at each term:
+
+$$\begin{equation}\label{iblPartialEquations}
+\hat{I}(f(n, \alpha) \Lt) = \int_\Omega f(l, n, \alpha) \Lt(l) \left< \NoL \right> \partial l   \\
+\hat{I}(f(n, \alpha))     = \int_\Omega f(l, n, \alpha)        \left< \NoL \right> \partial l   \\
+I(f(n, v, \alpha))        = \int_\Omega f(l, n, v, \alpha)     \left< \NoL \right> \partial l
 \end{equation}$$
 
-$$
-\begin{align*}
-F(l, v, f_0) &= f_0 + (f_{90} - f_0) F_c(h) \qquad \text{with} \; F_c(h) = (1- \LoH)^5 \\
-             &= f_0 (1 - F_c(h)) + f_{90} F_c(h) \\
-\\
-DV(h, \alpha) &= D(l, v, \alpha) V(l, v, \alpha)
-\end{align*}
-$$
 
-Plugging $F$ into equation $\ref{iblDFV}$:
-
-$$
-\Lout(n,v,\Theta) = \Lt^{constant} \Bigg[f_0 \int_\Omega \big(1-F_c(h) \big) DV(h, \alpha) \left< \NoL \right> + \, f_{90} \int_\Omega F_c(h) DV(h, \alpha) \left< \NoL \right> \Bigg]
-$$
-
-This expression can easily be precomputed in two 2D tables, as it depends only on $\NoV$ and $\alpha$:
-
-$$\begin{equation}\label{DFV1DFV2}
-DFV_1(\NoV, \alpha) = \int_\Omega \big(1 - F_c(h)\big) DV(h, \alpha) \left< \NoL \right> dl \\
-DFV_2(\NoV, \alpha) = \int_\Omega F_c(h) DV(h, \alpha) \left< \NoL \right> dl
-\end{equation}$$
-
-$$\begin{equation}\label{specularBRDFIntegrationConstant}
-L_{out}^{constant}(n, v, \Theta) = L_{\bot}^{constant}\bigg[
-                                             f_0    \color{red}{DFV_1(\NoV, \alpha)} + 
-                                             f_{90} \color{red}{DFV_2(\NoV, \alpha)}    \bigg]
-\end{equation}$$ 
-
-This result is **exact** only when $\Lt$ is constant and known, or more precisely, it gives the radiance contributed by the **average of the irradiance** (i.e.: the D.C. term).
-
-Now, let's look at the general case, where $\Lt$ isn't constant:
-
-$$\begin{equation}\label{specularBRDFIntegrationExpanded}
-\Lout(n, v, \Theta) = \int_\Omega D(h, \alpha) F(l, v, f_0, f_{90}) V(h, \alpha) \left< \NoL \right> \Lt(l) dl
-\end{equation}$$ 
-
-
-Since we can't compute this integral in real-time, we're simply going to assumes:
-
-- $\vec v = \vec n$ : this is assuming we're looking at the surface in the direction of its normal
-- $f_{90} = 0$ 
-
-
-Equation $ \ref{specularBRDFIntegrationExpanded} $ simplifies greatly to:
-
-$$
-\begin{align*}
-LD(n, \alpha) &=     \int_\Omega F(l, n, f_0) V(h, \alpha) D(h, \alpha) \left< \NoL \right> \Lt(l) dl \\
-              &= f_0 \int_\Omega (1 - F_c(h)) V(h, \alpha) D(h, \alpha) \left< \NoL \right> \Lt(l) dl \\
-\end{align*}
-$$
-
-Now, let's look at the behavior of this expression when $\Lt(l) = \Lt^{constant}$
-
-$$\begin{equation}\label{specularLD}
-LD^{constant}(n, \alpha) = \Lt^{constant} \color{red}{ f_0 \int_\Omega (1 - F_c(h)) V(h, \alpha) D(h, \alpha) \left< \NoL \right> dl }
-\end{equation}$$ 
-
-This scales $ \Lt^{constant} $ (i.e.: the D.C. term of the irradiance) by a factor : 
-
-$$
-K(\alpha) = f_0 \int_\Omega (1 - F_c(h)) V(h, \alpha) D(h, \alpha) \left< \NoL \right> dl
-$$
-
-By multiplying together equation $ \ref{specularBRDFIntegrationConstant} $ with $\Lt^{constant} = 1$ and equation $ \ref{specularLD} $ normalized by $K(\alpha)$, we obtain:
-
-$$
-\Lout(n,v,\alpha,f_0,f_{90}) = 
-	\big[ f_0 \color{red}{DFV_1(\NoV, \alpha)} + f_{90} \color{red}{DFV_2(\NoV, \alpha)} \big] 
-			\times \color{blue}{\frac{1}{K(\alpha)}LD(n, \alpha)}
-$$
-
-This expression is exact when the irradiance is constant. In fact, it is **exact for the D.C. component of the irradiance**. It is also exact when $\vec v = \vec n$.
-
-$ \color{blue}{\frac{1}{K(\alpha)}LD(n, \alpha)} $ can easily be precomputed into a mip-mapped cubemap where each mipmap level contains the radiance for a different value of $\alpha$. Also note that $f_0$ being a constant, it disappears entirely from $LD()$ and $K(\alpha)$.
-
-$$
-\Lout^{simplified}(n, \alpha) = \color{blue}{\frac{1}{K(\alpha)}LD(n, \alpha)}
-$$
-
-Note that because we assumed that $\vec v = \vec n$, we're losing the "stretchy reflections" at grazing angles.
-
-In essence, we're filtering (convolving) the IBL by a simplified BRDF that doesn't affect the average irradiance (D.C. term of IBL) thanks to the normalization factor $K(\alpha)$, then we scale the result by the magnitude of the radiance corresponding to a constant irradiance of value 1.0:
-
-$$
-radiance_{out} = (\color{red}{BRDF \ast \bar{\Lt}}) \times (\color{blue}{BRDF^{simplified} \ast \Lt})
-$$
-
-An interesting point to note is that if we simplified the BRDF a bit more by assuming no fresnel and no shadowing/masking, i.e. $F()=V()=1$ we would find the expression of Brian Karis's "split-sum" approximation, and $K(\alpha)$ would match Karis's empirical normalization factor exactly.
+All three of these equations can be easily pre-calculated and stored in look-up tables, as explained 
+below.
+ 
 
 ##### Discrete Domain #####
 
-Recall that we have:
+In the discrete domain the equations in \ref{iblPartialEquations} become:
+
+$$\begin{equation}
+\hat{I}(f(n, \alpha) \Lt) \equiv \frac{1}{N}\sum_{\forall \, i \in image} f(l_i, n, \alpha) \Lt(l_i) \left<\NoL\right>  \\
+\hat{I}(f(n, \alpha))     \equiv \frac{1}{N}\sum_{\forall \, i \in image} f(l_i, n, \alpha)          \left<\NoL\right>  \\
+I(f(n, v, \alpha))        \equiv \frac{1}{N}\sum_{\forall \, i \in image} f(l_i, n, v, \alpha)       \left<\NoL\right>
+\end{equation}$$
+
+However, in practice we're using _importance sampling_ which needs to take the $pdf$ of the distribution
+into account and adds a term $\frac{\left<\VoH\right>}{D(h_i, \alpha)\left<\NoH\right>}$.
+See Importance Sampling For The IBL section:
+
+$$\begin{equation}\label{iblImportanceSampling}
+\hat{I}(f(n, \alpha) \Lt) \equiv \frac{4}{N}\sum_i^N f(l_i, n, \alpha)    \frac{\left<\VoH\right>}{D(h_i, \alpha)\left<\NoH\right>} \Lt(l_i) \left<\NoL\right>  \\
+\hat{I}(f(n, \alpha))     \equiv \frac{4}{N}\sum_i^N f(l_i, n, \alpha)    \frac{\left<\VoH\right>}{D(h_i, \alpha)\left<\NoH\right>}          \left<\NoL\right>  \\
+I(f(n, v, \alpha))        \equiv \frac{4}{N}\sum_i^N f(l_i, n, v, \alpha) \frac{\left<\VoH\right>}{D(h_i, \alpha)\left<\NoH\right>}          \left<\NoL\right>
+\end{equation}$$
+
+
+Recalling that for $\hat{I}$, we assume that $v = n$, equations \ref{iblImportanceSampling},
+simplifies to:
+
+$$\begin{equation}
+\hat{I}(f(n, \alpha) \Lt) \equiv \frac{4}{N}\sum_i^N \frac{f(l_i, n,    \alpha)}{D(h_i, \alpha)} \Lt(l_i) \left<\NoL\right>  \\
+\hat{I}(f(n, \alpha))     \equiv \frac{4}{N}\sum_i^N \frac{f(l_i, n,    \alpha)}{D(h_i, \alpha)}          \left<\NoL\right>  \\
+I(f(n, v, \alpha))        \equiv \frac{4}{N}\sum_i^N \frac{f(l_i, n, v, \alpha)}{D(h_i, \alpha)} \frac{\left<\VoH\right>}{\left<\NoH\right>} \left<\NoL\right>
+\end{equation}$$
+
+Then, the first two equations can be merged together such that $LD(n, \alpha) = \frac{\hat{I}(f(n, \alpha) \Lt)}{\hat{I}(f(n, \alpha))}$
+
+$$\begin{equation}\label{iblLD}
+LD(n, \alpha)       \equiv \frac{\sum_i^N \frac{f(l_i, n, \alpha)}{D(h_i, \alpha)} \Lt(l_i) \left<\NoL\right>}{\sum_i^N \frac{f(l_i, n, \alpha)}{D(h_i, \alpha)}\left<\NoL\right>}
+\end{equation}$$
+$$\begin{equation}\label{iblDFV}
+I(f(n, v, \alpha))  \equiv \frac{4}{N}\sum_i^N \frac{f(l_i, n, v, \alpha)}{D(h_i, \alpha)} \frac{\left<\VoH\right>}{\left<\NoH\right>} \left<\NoL\right>
+\end{equation}$$
+
+Note that at this point, we could almost compute both remaining equations off-line. The only difficulty
+is that we don't know $f_0$ nor $f_{90}$ when we precompute those integrals. We will see below that
+we can incorporate these terms at runtime for equation \ref{iblDFV}, alas, this is not possible for
+equation \ref{iblLD} and we have to assume $f_0 = f_{90} = 1$ (i.e.: the fresnel term always evaluates to 1).
+
+We also have to deal with the visibility term of the brdf, in practice keeping it yields to slightly
+worst results compared to the ground truth, so we also set $V = 1$.
+
+Let's substitute $f$ in equations \ref{iblLD} and \ref{iblDFV}:
+
+$$\begin{equation}
+f(l_i, n, \alpha) = D(h_i, \alpha)F(f_0, f_{90}, \left<\VoH\right>)V(l_i, v, \alpha)
+\end{equation}$$
+
+The first simplification is that the term $D(h_i, \alpha)$ in the brdf cancels out with the
+denominator (which came from the $pdf$ due to importance sampling) and F and V disappear since we
+assume their value is 1. 
+
+$$\begin{equation}
+LD(n, \alpha)       \equiv \frac{\sum_i^N V(l_i, v, \alpha)\left<\NoL\right>\Lt(l_i) }{\sum_i^N \left<\NoL\right>}
+\end{equation}$$
+$$\begin{equation}\label{iblFV}
+I(f(n, v, \alpha))  \equiv \frac{4}{N}\sum_i^N \color{green}{F(f_0, f_{90}, \left<\VoH\right>)} V(l_i, v, \alpha)\frac{\left<\VoH\right>}{\left<\NoH\right>} \left<\NoL\right>
+\end{equation}$$
+
+Now, let's substitute the fresnel term into equation \ref{iblFV}:
+
+$$\begin{equation}
+F(f_0, f_{90}, \left<\VoH\right>) = f_0 (1 - F_c(\left<\VoH\right>)) + f_{90} F_c(\left<\VoH\right>) \\
+F_c(\left<\VoH\right>) = (1 - \left<\VoH\right>)^5
+\end{equation}$$
+
+
+$$\begin{equation}
+I(f(n, v, \alpha))  \equiv \frac{4}{N}\sum_i^N \left[\color{green}{f_0 (1 - F_c(\left<\VoH\right>)) + f_{90} F_c(\left<\VoH\right>)}\right] V(l_i, v, \alpha)\frac{\left<\VoH\right>}{\left<\NoH\right>} \left<\NoL\right> \\
+\end{equation}$$
 
 $$
 \begin{align*}
-\Lout(n,v,\alpha,f_0,f_{90}) &= 
-	\big[ f_0 \color{red}{DFV_1(\NoV, \alpha)} + f_{90} \color{red}{DFV_2(\NoV, \alpha)} \big] 
-			\times \color{blue}{\frac{1}{K(\alpha)}LD(n, \alpha)} \\
-         DFV_1(\NoV, \alpha) &= \int_\Omega \big(1 - F_c(h)\big) D(l, v, \alpha) V(l, v, \alpha) \left< \NoL \right> dl \\
-         DFV_2(\NoV, \alpha) &= \int_\Omega F_c(h) D(l, v, \alpha) V(l, v, \alpha) \left< \NoL \right> dl \\
-               LD_{v=n}(n, \alpha) &= \int_\Omega (1 - F_c(h)) V(h, \alpha) D(h, \alpha) \left< \NoL \right> \Lt(l) dl \\
-			       K_{v=n}(\alpha) &= \int_\Omega (1 - F_c(h)) V(h, \alpha) D(h, \alpha) \left< \NoL \right> dl \\
+I(f(n, v, \alpha))  \equiv & \color{green}{f_0   } \frac{4}{N}\sum_i^N  \color{green}{(1 - F_c(\left<\VoH\right>))} V(l_i, v, \alpha)\frac{\left<\VoH\right>}{\left<\NoH\right>} \left<\NoL\right> \\
+                    +      & \color{green}{f_{90}} \frac{4}{N}\sum_i^N  \color{green}{     F_c(\left<\VoH\right>) } V(l_i, v, \alpha)\frac{\left<\VoH\right>}{\left<\NoH\right>} \left<\NoL\right>
 \end{align*}
 $$
 
-Converting the $DFV$ and $LD$ terms defined above into the discrete domain, using _importance sampling_ (see [Importance Sampling] for the IBL):
+
+And finally, we extract the equations that can be calculated off-line (i.e.: the part that doesn't 
+depend on the runtime parameters $f_0$ and $f_{90}$):
+
+$$\begin{equation}\label{iblAllEquations}
+DFG_1(\alpha, \left<\NoV\right>) = \frac{4}{N}\sum_i^N  \color{green}{(1 - F_c(\left<\VoH\right>))} V(l_i, v, \alpha)\frac{\left<\VoH\right>}{\left<\NoH\right>} \left<\NoL\right> \\
+DFG_2(\alpha, \left<\NoV\right>) = \frac{4}{N}\sum_i^N  \color{green}{     F_c(\left<\VoH\right>) } V(l_i, v, \alpha)\frac{\left<\VoH\right>}{\left<\NoH\right>} \left<\NoL\right> \\
+I(f(n, v, \alpha))  \equiv   \color{green}{f_0} \color{red}{DFG_1(\alpha, \left<\NoV\right>)} + \color{green}{f_{90}} \color{red}{DFG_2(\alpha, \left<\NoV\right>)}
+\end{equation}$$
+
+
+Notice that $DFG_1$ and $DFG_2$ only depend on $\NoV$, that is the angle between the normal $n$ and
+the view direction $v$. This is true because the integral is symmetrical with respect to $n$. 
+When integrating, we can choose any $v$ we please as long as it satisfies $\NoV$ 
+(e.g.: when calculating $\VoH$).
+
+
+Putting everything back together:
 
 $$
 \begin{align*}
-         DFV_1(n, v, \alpha) &= \frac{4}{N}\sum_i^N \big(1 - F_c(h)\big) V(l_i, v, \alpha) \frac{\left< v \cdot h_i \right>}{\left< n \cdot h_i \right>} \left< n \cdot l_i \right> \\
-         DFV_2(n, v, \alpha) &= \frac{4}{N}\sum_i^N          F_c(h)      V(l_i, v, \alpha) \frac{\left< v \cdot h_i \right>}{\left< n \cdot h_i \right>} \left< n \cdot l_i \right> \\
-			       K(\alpha) &= \frac{1}{N}\sum_i^N \frac{(1 - F_c(h)) V(h, \alpha) D(h, \alpha)}{ D(h, \alpha)J(h)\left< n \cdot h_i \right> } \left< n \cdot l_i \right> \\
-			                 &= \frac{4}{N}\sum_i^N (1 - F_c(h)) V(h, \alpha) \left< n \cdot l_i \right> \\
-               LD(n, \alpha) &= \color{blue}{\frac{1}{K(\alpha)}} \frac{4}{N} \sum_i^N (1 - F_c(h)) V(h, \alpha) \Lt(l) \left< n \cdot l_i \right> \\
-			                 &= \frac{\sum_i^N (1 - F_c(h)) V(h, \alpha) \left< n \cdot l_i \right> \Lt(l)}
-							         {\sum_i^N (1 - F_c(h)) V(h, \alpha) \left< n \cdot l_i \right>}
-\end{align*}
+\Lout(n,v,\alpha,f_0,f_{90})     &\simeq \big[ f_0 \color{red}{DFG_1(\NoV, \alpha)} + f_{90} \color{red}{DFG_2(\NoV, \alpha)} \big] \times LD(n, \alpha) \\
+DFG_1(\alpha, \left<\NoV\right>) &=      \frac{4}{N}\sum_i^N  \color{green}{(1 - F_c(\left<\VoH\right>))} V(l_i, v, \alpha)\frac{\left<\VoH\right>}{\left<\NoH\right>} \left<\NoL\right> \\
+DFG_2(\alpha, \left<\NoV\right>) &=      \frac{4}{N}\sum_i^N  \color{green}{     F_c(\left<\VoH\right>) } V(l_i, v, \alpha)\frac{\left<\VoH\right>}{\left<\NoH\right>} \left<\NoL\right> \\
+LD(n, \alpha)                    &=      \frac{\sum_i^N V(l_i, n, \alpha)\left<\NoL\right>\Lt(l_i) }{\sum_i^N \left<\NoL\right>}
+\end{align*}     
 $$
 
-Both $DFV_1$ and $DFV_2$ can either be pre-calculated in a regular 2D texture indexed by $ (\NoV, \alpha) $ and sampled bilinearly, or computed at runtime using an analytic approximation of the surfaces. See sample code in the annex. The pre-calculated textures are shown in table [textureDFG]. A C++ implementation of the pre-computation can be found in section [Precomputing L for image-based lighting].
+#### The $DFG_1$ and $DFG_2$ term visualized ####
+
+Both $DFG_1$ and $DFG_2$ can either be pre-calculated in a regular 2D texture indexed by $(\NoV, \alpha)$ 
+and sampled bilinearly, or computed at runtime using an analytic approximation of the surfaces. 
+See sample code in the annex. 
+The pre-calculated textures are shown in table [textureDFG]. 
+A C++ implementation of the pre-computation can be found in section [Precomputing L for image-based lighting].
 
 
 $DFG_1$                  | $DFG_2$                  | ${ DFG_1, DFG_2, 0 }$
@@ -2037,9 +2131,18 @@ $DFG_1$                  | $DFG_2$                  | ${ DFG_1, DFG_2, 0 }$
 [Table [textureDFG]: Y axis: $\alpha$. X axis: $cos \theta$]
 
 
-$DFV_1$ and $DFV_2$  are conveniently within the $ [0, 1] $ range however 8-bits textures can cause problems. Unfortunately, on mobile, 16-bits or float textures are not ubiquitous and there are a limited number of samplers. Despite the attractive simplicity of the shader code using a texture, it might be better to use an analytic approximation. Note that since we only need to store two terms, OpenGL ES 3.0's RG16F texture format is a good candidate.
+$DFG_1$ and $DFG_2$  are conveniently within the $[0, 1]$ range, however 8-bits textures don't have
+enough precision and will cause problems. 
+Unfortunately, on mobile, 16-bits or float textures are not ubiquitous and there are a limited 
+number of samplers. 
+Despite the attractive simplicity of the shader code using a texture, it might be better to use an 
+analytic approximation. Note however that since we only need to store two terms, 
+OpenGL ES 3.0's RG16F texture format is a good candidate.
 
-Such analytic approximation is described in [#Karis14], itself based on [#Lazarov13]. [#Narkowicz14] is another interesting approximation. Table [textureApproxDFG] presents a visual representation of these approximations.
+Such analytic approximation is described in [#Karis14], itself based on [#Lazarov13]. 
+[#Narkowicz14] is another interesting approximation. Note that these two approximations are not
+compatible with the energy compensation term presented in section [Pre-integration for multiscattering].
+Table [textureApproxDFG] presents a visual representation of these approximations.
 
 $DFG_1$                         | $DFG_2$                         | ${ DFG_1, DFG_2, 0 }$
 --------------------------------|---------------------------------|----------------------
@@ -2047,7 +2150,24 @@ $DFG_1$                         | $DFG_2$                         | ${ DFG_1, DF
 [Table [textureApproxDFG]: Y axis: $\alpha$. X axis: $cos \theta$]
 
 
-#### The LD term visualized ####
+#### The $LD$ term visualized ####
+
+$LD$ is the convolution of the environment by a function that only depends on the $\alpha$ parameter
+(itself related to the roughness, see section [Roughness remapping and clamping]).
+$LD$ can conveniently be stored in a mip-mapped cubemap where increasing LODs receive the environment
+pre-filtered with increasing roughness. This works well because this convolution is a
+powerful low-pass filter. To make good use of each mipmap level, it is necessary to remap
+$\alpha$; we find that using a power remapping with $\gamma = 2$ works well and is convenient.
+
+$$
+\begin{align*}
+    \alpha       &= perceptualRoughness^2                        \\
+    lod_{\alpha} &= \alpha^{\frac{1}{2}} = perceptualRoughness   \\
+\end{align*}
+$$
+
+See an example below:
+
 
 ![$\alpha=0.0$](images/ibl/ibl_river_roughness_m0.png style="max-width:100%;")
 ![$\alpha=0.2$](images/ibl/ibl_river_roughness_m1.png style="max-width:100%;")
@@ -2059,25 +2179,26 @@ $DFG_1$                         | $DFG_2$                         | ${ DFG_1, DF
 
 Figure [iblVisualized] shows how indirect lighting interacts with dielectrics and conductors. Direct lighting was removed for illustration purposes.
 
-![Figure [iblVisualized]: Anisotropic reflections with varying roughness, metallicness, etc.](images/ibl/ibl_visualization.jpg)
+![Figure [iblVisualized]: Indirect diffuse and specular decomposition](images/ibl/ibl_visualization.jpg)
 
 #### IBL evaluation implementation ####
 
 Listing [iblEvaluation] presents a GLSL implementation to evaluate the IBL, using the various textures described in the previous sections. 
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-vec3 ibl(vec3 n, vec3 v, vec3 diffuseColor, vec3 f0, float roughness) {
+vec3 ibl(vec3 n, vec3 v, vec3 diffuseColor, vec3 f0, vec3 f90, float perceptualRoughness) {
     vec3 r = reflect(n);
     vec3 Ld = textureCube(irradianceEnvMap, r) * diffuseColor;
-    vec3 Lld = textureCube(prefilteredEnvMap, r, computeLODFromRoughness(roughness));
-    vec2 Ldfg = texture2D(dfgLut, vec2(dot(n, v), roughness)).xy;
-    vec3 Lr =  (f0 * Ldfg.x + Ldfg.y) * Lld;
+    vec3 Lld = textureCube(prefilteredEnvMap, r, computeLODFromRoughness(perceptualRoughness));
+    vec2 Ldfg = textureLod(dfgLut, vec2(dot(n, v), perceptualRoughness), 0.0).xy;
+    vec3 Lr =  (f0 * Ldfg.x + f90 * Ldfg.y) * Lld;
     return Ld + Lr;
 }
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 [Listing [iblEvaluation]: GLSL implementation of image based lighting evaluation]
 
-We can however save a couple of texture lookups by using Spherical Harmonics instead of an irradiance cubemap and the analytical approximation of the $DFG$ LUT, as shown in listing [optimizedIblEvaluation].
+We can however save a couple of texture lookups by using Spherical Harmonics instead of an 
+irradiance cubemap and the analytical approximation of the $DFG$ LUT, as shown in listing [optimizedIblEvaluation].
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 vec3 irradianceSH(vec3 n) {
@@ -2095,7 +2216,10 @@ vec3 irradianceSH(vec3 n) {
         + sphericalHarmonics[8] * (n.x * n.x - n.y * n.y);
 }
 
-vec2 prefilteredDFG(float NoV, float roughness) {
+// NOTE: this approximation is not valid if the energy compensation term
+// for multiscattering is applied. We use the DFG LUT solution to implement
+// multiscattering
+vec2 prefilteredDFG(float NoV, float perceptualRoughness) {
     // Karis' approximation based on Lazarov's
     const vec4 c0 = vec4(-1.0, -0.0275, -0.572,  0.022);
     const vec4 c1 = vec4( 1.0,  0.0425,  1.040, -0.040);
@@ -2103,30 +2227,38 @@ vec2 prefilteredDFG(float NoV, float roughness) {
     float a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
     return vec2(-1.04, 1.04) * a004 + r.zw;
     // Zioma's approximation based on Karis
-    // return vec2(1.0, pow(1.0 - max(roughness, NoV), 3.0));
+    // return vec2(1.0, pow(1.0 - max(perceptualRoughness, NoV), 3.0));
 }
 
-vec3 evaluateSpecularIBL(vec3 r, float roughness) {
+// NOTE: this is the DFG LUT implementation of the function above
+vec2 prefilteredDFG_LUT(float coord, float NoV) {
+    // coord = sqrt(roughness), which is the mapping used by the
+    // IBL prefiltering code when computing the mipmaps
+    return textureLod(dfgLut, vec2(NoV, coord), 0.0).rg;
+}
+
+vec3 evaluateSpecularIBL(vec3 r, float perceptualRoughness) {
     // This assumes a 256x256 cubemap, with 9 mip levels
-    float lod = 8.0 * roughness;
+    float lod = 8.0 * perceptualRoughness;
     // decodeEnvironmentMap() either decodes RGBM or is a no-op if the
     // cubemap is stored in a float texture
     return decodeEnvironmentMap(textureCubeLodEXT(environmentMap, r, lod));
 }
 
-vec3 evaluateIBL(vec3 n, vec3 v, vec3 diffuseColor, vec3 f0, float roughness) {
+vec3 evaluateIBL(vec3 n, vec3 v, vec3 diffuseColor, vec3 f0, vec3 f90, float perceptualRoughness) {
     float NoV = max(dot(n, v), 0.0);
     vec3 r = reflect(-v, n);
 
     // Specular indirect
-    vec3 indirectSpecular = evaluateSpecularIBL(r, roughness);
-    vec2 env = prefilteredDFG(NoV, roughness);
-    vec3 specularColor = f0 * env.x + env.y;
+    vec3 indirectSpecular = evaluateSpecularIBL(r, perceptualRoughness);
+    vec2 env = prefilteredDFG_LUT(perceptualRoughness, NoV);
+    vec3 specularColor = f0 * env.x + f90 * env.y;
 
     // Diffuse indirect
     // We multiply by the Lambertian BRDF to compute radiance from irradiance
     // With the Disney BRDF we would have to remove the Fresnel term that
-    // depends on NoL (it would be rolled into the SH)
+    // depends on NoL (it would be rolled into the SH). The Lambertian BRDF
+    // can be baked directly in the SH to save a multiplication here
     vec3 indirectDiffuse = max(irradianceSH(n), 0.0) * Fd_Lambert();
 
     // Indirect contribution
@@ -2135,47 +2267,39 @@ vec3 evaluateIBL(vec3 n, vec3 v, vec3 diffuseColor, vec3 f0, float roughness) {
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 [Listing [optimizedIblEvaluation]: GLSL implementation of image based lighting evaluation]
 
-[^ibl1]: $\Theta$ represents the parameters of the material model $f$, i.e.: _roughness_, albedo and so on...
 
-[^iblTypes1]: This can be done through blending of static probes or by spreading the workload over time
+#### Pre-integration for multiscattering ####
 
-[^iblDiffuse1]: The Lambertian BRDF doesn't depend on $\vec l$, $\vec v$ or $\theta$, so $L_d(n,v,\theta) \equiv L_d(n,\sigma)$
-
-[^iblDiffuse2]: $\Omega_s$ can be approximated by $\frac{2\pi}{6 \cdot width \cdot height}$ for a cubemap
-
-[^iblDiffuse3]: $O(12\,n^2\,m^2)$, with $n$ and $m$ respectively the dimensions of the environment and the precomputed cubemap
-
-### Pre-integration for multiscattering ###
-
-In section [Energy loss in specular reflectance] we discussed how to use a second scaled specular lobe to compensate for the energy loss due to only accounting for a single scattering event in our BRDF. This energy compensation lobe is scaled by a term that depends on $r$ defined in the following way:
+In section [Energy loss in specular reflectance] we discussed how to use a second scaled specular lobe 
+to compensate for the energy loss due to only accounting for a single scattering event in our BRDF.
+This energy compensation lobe is scaled by a term that depends on $r$ defined in the following way:
 
 $$\begin{equation}
-r = \int_{\Omega} D(l,v) V(l,v) \left< \NoL \right> dl
+r = \int_{\Omega} D(l,v) V(l,v) \left< \NoL \right> \partial l
 \end{equation}$$
 
-This equality is very similar to the terms $DFV_1$ and $DFV_2$ seen in equation $\ref{DFV1DFV2}$. Starting from equation $\ref{iblDFV}$ we can rewrite these two terms to match our definition of $r$. Recall that:
+Or, evaluated with importance sampling (See Importance Sampling For The IBL section):
 
 $$\begin{equation}
-\Lout(n,v,\Theta) = \Lt^{constant} \int_\Omega D(l, v, \alpha) F(l, v, f_0, f_{90}) V(l, v, \alpha) \left< \NoL \right> dl
+r \equiv  \frac{4}{N}\sum_i^N  V(l_i, v, \alpha)\frac{\left<\VoH\right>}{\left<\NoH\right>} \left<\NoL\right>
 \end{equation}$$
 
-With the Schlick Fresnel approximation we can instead write:
+This equality is very similar to the terms $DFG_1$ and $DFG_2$ seen in equation $\ref{iblAllEquations}$.
+In fact, it's the same, except without the Fresnel term.
 
-$$\begin{align*}
-DFG &= \int_\Omega (\fNormal + (1 - \fNormal) (1 - \left< \LoH \right>)^5) D(l, v, \alpha) V(l, v, \alpha) \left< \NoL \right> dl \\
-DFG &= (1 - \fNormal) \int_\Omega (1 - \left< \LoH \right>)^5 D(l, v, \alpha) V(l, v, \alpha) \left< \NoL \right> dl +
-\fNormal \int_\Omega D(l, v, \alpha) V(l, v, \alpha) \left< \NoL \right> dl \\
-DFG &= (1 - \fNormal) DFV_1(\NoV, \alpha) + \fNormal DFV_2(\NoV, \alpha) \\
-\end{align*}$$
+By making the further assumption that $f_{90} = 1$, we can rewrite $DFG_1$ and $DFG_2$ and the
+$\Lout$ reconstruction:
 
-Where:
+$$
+\begin{align*}
+\Lout(n,v,\alpha,f_0)                           &\simeq \big[ (1 - f_0) \color{red}{DFG_1^{multiscatter}(\NoV, \alpha)} + f_0 \color{red}{DFG_2^{multiscatter}(\NoV, \alpha)} \big] \times LD(n, \alpha) \\
+DFG_1^{multiscatter}(\alpha, \left<\NoV\right>) &=      \frac{4}{N}\sum_i^N  \color{green}{F_c(\left<\VoH\right>)} V(l_i, v, \alpha)\frac{\left<\VoH\right>}{\left<\NoH\right>} \left<\NoL\right> \\
+DFG_2^{multiscatter}(\alpha, \left<\NoV\right>) &=      \frac{4}{N}\sum_i^N                                        V(l_i, v, \alpha)\frac{\left<\VoH\right>}{\left<\NoH\right>} \left<\NoL\right> \\
+LD(n, \alpha)                                   &=      \frac{\sum_i^N V(l_i, n, \alpha)\left<\NoL\right>\Lt(l_i) }{\sum_i^N V(l_i, n, \alpha)\left<\NoL\right>}
+\end{align*}     
+$$
 
-$$\begin{align*}
-DFV_1(\NoV, \alpha) &= \int_\Omega (1 - \left< \LoH \right>)^5 D(l, v, \alpha) V(l, v, \alpha) \left< \NoL \right> dl \\
-DFV_2(\NoV, \alpha) &= \int_\Omega D(l, v, \alpha) V(l, v, \alpha) \left< \NoL \right> dl
-\end{align*}$$
-
-These two new $DFV$ terms simply need to replace the ones used in the implementation shown in section [Precomputing L for image-based lighting]:
+These two new $DFG$ terms simply need to replace the ones used in the implementation shown in section [Precomputing L for image-based lighting]:
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 float Fc = pow(1 - VoH, 5.0f);
@@ -2187,22 +2311,71 @@ r.y += Gv;
 To perform the reconstruction we need to slightly modify listing [multiscatterIBLEvaluation]:
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-vec2 dfg = textureLod(dfgLut, vec2(dot(n, v), roughness), 0.0).xy;
+vec2 dfg = textureLod(dfgLut, vec2(dot(n, v), perceptualRoughness), 0.0).xy;
 // (1 - f0) * dfg.x + f0 * dfg.y
 vec3 specularColor = mix(dfg.xxx, dfg.yyy, f0);
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 [Listing [multiscatterIBLEvaluation]: GLSL implementation of image based lighting evaluation, with multiscattering LUT]
+
+
+#### Summary ####
+
+In order to calculate the specular contribution of distant image-based lights, we had to make a few
+approximations and compromises:
+
+    - $v = n$, by far the assumption contributing to the largest error when integrating the
+      non-constant part of the IBL. This results in the complete loss of roughness anisotropy
+      with respect to the view point.
+
+    - Roughness contribution for the non-constant part of the IBL is quantized and trilinear filtering
+      is used to interpolate between these levels. This is most visible at low roughnes (e.g.: around 0.0625
+      for a 9 LODs cubemap).
+
+    - Because mipmap levels are used to store the pre-integrated environment, they can't be used for
+      texture minification, as they ought to. This can causes aliasing or moiré artifacts in high frequency 
+      regions or the environment at low roughness and/or distant or small objects. 
+      This can also impact performance due to the resulting poor cache access pattern. 
+
+    - No Fresnel for the non-constant part of the IBL.
+
+    - Visibility = 1 for the non-constant part of the IBL.
+
+    - Schlick's Fresnel
+
+    - $f_{90} = 1$ in the multiscattering case.
+
+
+![Figure [iblPrefilterVsImportanceSampling]:
+Comparison between importance-sampled reference (top) and prefiltered IBL (middle).](images/ibl/ibl_prefilter_vs_reference.png)
+
+![Figure [iblStretchyReflectionLoss]:
+Error in reflections due to assuming $v = n$ (bottom) -- loss of "stretchy reflections".](images/ibl/ibl_stretchy_reflections_error.png)
+
+![Figure [iblRoughnessInLods0]:
+Error due to storing the roughness in cubemaps LODs at roughness = 0.0625 (i.e.: sampling exactly between levels).
+Notice how instead of bluring we see a "cross-fade" between two blurs.](images/ibl/ibl_trilinear_0.png)
+
+![Figure [iblRoughnessInLods1]:
+Error due to storing the roughness in cubemaps LODs at roughness = 0.125 (i.e.: sampling exactly level 1).
+When the roughness closely matches a LOD, the error due to trilinear filtering in the cubemap is
+reduced. Notice the errors due to $v = n$ at grazing angles.](images/ibl/ibl_trilinear_1.png)
+
+![Figure [iblMoirePattern]:
+Moiré pattern due to texture minification on a metallic sphere at $\alpha = 0$
+using an environment made of colored vertical stripes (skybox hidden).](images/ibl/ibl_no_mipmaping.png)
+
 
 ### Clear coat ###
 
 When sampling the IBL, the clear coat layer is calculated as a second specular lobe. This specular lobe is oriented along the view direction since we cannot reasonably integrate over the hemisphere. Listing [clearCoatIBL] demonstrates this approximation in practice. It also shows the energy conservation step. It is important to note that this second specular lobe is computed exactly the same way as the main specular lobe, using the same DFG approximation.
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-float Fc = F_Schlick(0.04, 1.0, shading_NoV) * clearCoat;
+// clearCoat_NoV == shading_NoV if the clear coat layer doesn't have its own normal map
+float Fc = F_Schlick(0.04, 1.0, clearCoat_NoV) * clearCoat;
 // base layer attenuation for energy compensation
 iblDiffuse  *= 1.0 - Fc;
 iblSpecular *= sq(1.0 - Fc);
-iblSpecular += specularIBL(r, clearCoatRoughness) * Fc;
+iblSpecular += specularIBL(r, clearCoatPerceptualRoughness) * Fc;
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 [Listing [clearCoatIBL]: GLSL implementation of the clear coat specular lobe for image-based lighting]
 
@@ -2245,57 +2418,11 @@ Figure [anisotropicDirection] demonstrates this modified implementation in pract
 
 ### Cloth ###
 
-The IBL implementation for the cloth material model is more complicated than for the other material models. The main difference stems from the use of a different NDF (Ashikhmin vs height-correlated Smith GGX). As described in this section, we use the split-sum approximation to compute the DFG term of the BRDF when computing an IBL. Since this DFG term is based on the wrong NDF, we must find a new approximation.
+The IBL implementation for the cloth material model is more complicated than for the other material models. The main difference stems from the use of a different NDF ("Charlie" vs height-correlated Smith GGX). As described in this section, we use the split-sum approximation to compute the DFG term of the BRDF when computing an IBL. This DFG term is designed for a different BRDF and cannot be used for the cloth BRDF. Since we designed our  cloth BRDF to not need a Fresnel term, we can generate a single DG term in the 3rd channel of the DFG LUT. The result is shown in figure [dfgClothLUT].
 
-The approximation we use is purely analytical and was manually fitted against a Monte-Carlo reference shown in figure [clothDFGReference] (using $2^{22}$ samples per data point instead of importance sampling). This visual comparison shows the significant impact the cloth NDF has on the BRDF. Using the standard DFG term would result in widely incorrect results.
+The DG term is generated using uniform sampling as recommended in [#Estevez17]. With uniform sampling the $pdf$ is simply $\frac{1}{2\pi}$ and we must still use the Jacobian $\frac{1}{4\left< \VoH \right>}$.
 
-![Figure [clothDFGReference]: DFG LUT (left) vs Ashikhmin DFG LUT (middle) vs "Charlie" DFG LUT (right)](images/ibl/dfg_cloth.png)
-
-Manual fitting was performed in Mathematica (as shown in figure [clothManualFitting]) and while not perfect, the analytical approximation strikes a decent balance between correctness and runtime cost.
-
-![Figure [clothManualFitting]: Manual fitting of the DFG term for the cloth NDF](images/ibl/cloth_dfg_approximation.png)
-
-Listing [clothApprox] shows the implementation of the DFG approximation for the Ashikhmin NDF. We also provide the [Mathematica notebook](math/Cloth%20DFG%20Approximation.nb) containing the formulas of our approximation as well as comparisons to the reference LUT.
-
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-vec2 PrefilteredDFG_Cloth_Ashikhmin(float roughness, float NoV) {
-    const vec4 c0 = vec4(0.24,  0.93, 0.01, 0.20);
-    const vec4 c1 = vec4(2.00, -1.30, 0.40, 0.03);
-
-    float s = 1.0 - NoV;
-    float e = s - c0.y;
-    float g = c0.x * exp2(-(e * e) / (2.0 * c0.z)) + s * c0.w;
-    float n = roughness * c1.x + c1.y;
-    float r = max(1.0 - n * n, c1.z) * g;
-
-    return vec2(r, r * c1.w);
-}
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-[Listing [clothApprox]: GLSL implementation of the DFG approximation for the Ashikhmin cloth NDF]
-
-Listing [clothCharlieApprox] shows the implementation of the DFG approximation for the "Charlie" NDF.
-
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-vec2 PrefilteredDFG_Cloth_Charlie(float roughness, float NoV) {
-    const vec3 c0 = vec3(0.95, 1250.0, 0.0095);
-    const vec4 c1 = vec4(0.04, 0.2, 0.3, 0.2);
-
-    float a = 1.0 - NoV;
-    float b = 1.0 - roughness;
-
-    float n = pow(c1.x + a, 64.0);
-    float e = b - c0.x;
-    float g = exp2(-(e * e) * c0.y);
-    float f = b + c1.y;
-    float a2 = a * a;
-    float a3 = a2 * a;
-    float c = n * g + c1.z * (a + c1.w) * roughness + f * f * a3 * a3 * a2;
-    float r = min(c, 18.0);
-
-    return vec2(r, r * c0.z);
-}
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-[Listing [clothCharlieApprox]: GLSL implementation of the DFG approximation for the "Charlie" cloth NDF]
+![Figure [dfgClothLUT]: DFG LUT with a 3rd channel encoding the DG term of the cloth BRDF](images/ibl/dfg_cloth.png)
 
 The remainder of the image-based lighting implementation follows the same steps as the implementation of regular lights, including the optional subsurface scattering term and its wrap diffuse component. Just as with the clear coat IBL implementation, we cannot integrate over the hemisphere and use the view direction as the dominant light direction to compute the wrap diffuse component.
 
@@ -2462,7 +2589,7 @@ float computeSpecularAO(float NoV, float ao, float roughness) {
 }
 
 // specular indirect
-vec3 indirectSpecular = evaluateSpecularIBL(r, roughness);
+vec3 indirectSpecular = evaluateSpecularIBL(r, perceptualRoughness);
 // ambient occlusion
 float ao = texture2D(aoMap, outUV).r;
 indirectSpecular *= computeSpecularAO(NoV, ao, roughness);
@@ -2479,7 +2606,7 @@ The key idea is to occlude light coming from behind the surface. This can easily
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // specular indirect
-vec3 indirectSpecular = evaluateSpecularIBL(r, roughness);
+vec3 indirectSpecular = evaluateSpecularIBL(r, perceptualRoughness);
 
 // horizon occlusion with falloff, should be computed for direct specular too
 float horizon = min(1.0 + dot(r, n), 1.0);
@@ -2763,7 +2890,7 @@ float exposureSettings(float aperture, float shutterSpeed, float sensitivity) {
 // Computes the exposure normalization factor from
 // the camera's EV100
 float exposure(ev100) {
-    return pow(2.0, ev100) * 1.2;
+    return 1.0 / (pow(2.0, ev100) * 1.2);
 }
 
 float ev100 = exposureSettings(aperture, shutterSpeed, sensitivity);
@@ -3164,25 +3291,52 @@ The biggest difference is visible at grazing angles, which is most likely explai
 
 ## Coordinates systems
 
-### Main coordinates system
+### World coordinates system
 
 Filament uses a Y-up, right-handed coordinate system.
 
 ![Figure [coordinates]: Red +X, green +Y, blue +Z (rendered in Marmoset Toolbag).](images/screenshot_coordinates.jpg)
 
+
+### Camera coordinates system
+
+Filament's Camera looks towards its local -Z axis. That is, when placing a camera in the world
+without any transform applied to it, the camera looks down the world's -Z axis.
+
+
 ### Cubemaps coordinates system
 
-All the cubemaps used in Filament (environment background, reflection probes, etc.) will follow the OpenGL convention for faces alignment show in figure [cubemapCoordinates].
+All cubemaps used in Filament follow the OpenGL convention for face
+alignment shown in figure [cubemapCoordinates].
 
 ![Figure [cubemapCoordinates]: Horizontal cross representation of a cubemap following the OpenGL faces alignment convention.](images/screenshot_cubemap_coordinates.png)
 
-#### Equirectangular environment maps
+Note that environment background and reflection probes are mirrored (see section [Mirroring]).
 
-To convert equirectangular environment maps to horizontal/vertical cross cubemaps we position the +Z face in the center of the source rectilinear environment map.
 
 #### Mirroring
 
-To simplify the rendering of reflections, cubemaps will be stored mirrored on the X axis. This means that cubemaps used as environment backgrounds need to be mirrored again at runtime. An easy way to achieve for skyboxes is to use textured back faces.
+To simplify the rendering of reflections, IBL cubemaps are stored mirrored on the X axis. This is
+the default behaviour of the `cmgen` tool. This means that an IBL cubemap used as environment 
+background needs to be mirrored again at runtime. 
+An easy way to achieve this for skyboxes is to use textured back faces. Filament does
+this by default.
+
+
+#### Equirectangular environment maps
+
+To convert equirectangular environment maps to horizontal/vertical cross cubemaps we position the
++Z face in the center of the source rectilinear environment map.
+
+
+#### World space orientation of environment maps and Skyboxes
+
+When specifying a skybox or an IBL in Filament, the specified cubemap is oriented such that its 
+-Z face points towards the +Z axis of the world (this is because filament assumes mirrored cubemaps, 
+see section [Mirroring]). However, because environments and skyboxes are expected to be pre-mirrored, 
+their -Z (back) face points towards the world's -Z axis as expected (and the camera looks toward that 
+direction by default, see section [Camera coordinates system]).
+
 
 # Annex
 
@@ -3206,7 +3360,7 @@ To compute the specular color of a material we need to evaluate the complex Fres
 
 We then sum (integrate) and normalize all the samples to obtain $\fNormal$ in the XYZ color space. From there, a simple color space conversion yields a linear sRGB color or a non-linear sRGB color after applying the opto-electronic transfer function (OETF, commonly known as "gamma" curve). Note that for some materials such as gold the final sRGB color might fall out of gamut. We use a simple normalization step as a cheap form of gamut remapping but it would be interesting to consider computing values in a color space with a wider gamut (for instance BT.2020).
 
-To achieve the desired result we used the ICE 1931 2 degrees CMFs, from 360nm to 830nm at 1nm intervals ([source](http://cvrl.ioo.ucl.ac.uk/cmfs.htm)), and the CIE Standard Illuminant D65 relative spectral power distribution, from 300nm to 830nm, at 5nm intervals ([source](https://cielab.xyz/pdf/CIE_sel_colorimetric_tables.xls)).
+To achieve the desired result we used the ICE 1931 2 degrees CMFs, from 360nm to 830nm at 1nm intervals ([source](http://cvrl.ioo.ucl.ac.uk/cmfs.htm)), and the CIE Standard Illuminant D65 relative spectral power distribution, from 300nm to 830nm, at 5nm intervals ([source](http://files.cie.co.at/204.xls)).
 
 Our implementation is presented in listing [specularColorImpl], with the actual data omitted for brevity.
 
@@ -3323,19 +3477,36 @@ $$\begin{equation}\label{iblSampling}
 \Lout(n,v,\Theta) \equiv \frac{1}{N} \sum_{i}^{N} f(l_{i}^{uniform},v,\Theta) L_{\perp}(l_i) \left< n \cdot l_i^{uniform} \right>
 \end{equation}$$
 
-Unfortunately, we would need too many samples to evaluate this integral. A technique commonly used is to choose samples that are more "important" more often, this is called _importance sampling_. In our case we'll use the probability density function (PDF) of the BRDF as the distribution of samples.
+Unfortunately, we would need too many samples to evaluate this integral. A technique commonly used
+is to choose samples that are more "important" more often, this is called _importance sampling_.
+In our case we'll use the distribution of micro-facets normals, $D_{ggx}$, as the distribution of
+important samples.
 
-The evaluation of $ \Lout(n,v,\Theta) $ with importance sampling is presented in equation $\ref{iblImportanceSampling}$.
+The evaluation of $ \Lout(n,v,\Theta) $ with importance sampling is presented in equation $\ref{annexIblImportanceSampling}$.
 
-$$\begin{equation}\label{iblImportanceSampling}
+$$\begin{equation}\label{annexIblImportanceSampling}
 \Lout(n,v,\Theta) \equiv \frac{1}{N} \sum_{i}^{N} \frac{f(l_{i},v,\Theta)}{p(l_i,v,\Theta)} L_{\perp}(l_i) \left< n \cdot l_i \right>
 \end{equation}$$
 
-In equation $\ref{iblImportanceSampling}$, $p$ is the probability density function (PDF) of the BRDF $f$, and $l_i$ represents the _important direction samples_ with that BRDF. These samples depend on $v$ and $\alpha$. The definition of the PDF and its Jacobian (the transform from $h$ to $l$) is shown in equation $\ref{iblPDF}$.
+In equation $\ref{annexIblImportanceSampling}$, $p$ is the probability density function (PDF) of the
+distribution of _important direction samples_ $l_i$. These samples depend on $h_i$, $v$ and $\alpha$.
+The definition of the PDF is shown in equation $\ref{iblPDF}$.
+
+$h_i$ is given by the distribution we chose, see section [Choosing important directions] for more details.
+
+The _important direction samples_ $l_i$ are calculated as the reflection of $v$ around $h_i$, and therefore
+**do not** have the same PDF as $h_i$. The PDF of a transformed distribution is given by:
+
+$$\begin{equation}
+p(T_r(x)) = p(x) |J(T_r)|
+\end{equation}$$
+
+Where $|J(T_r)|$ is the determinant of the Jacobian of the transform. In our case we're considering
+the transform from $h_i$ to $l_i$ and the determinant of its Jacobian is given in \ref{iblPDF}.
 
 $$\begin{equation}\label{iblPDF}
-p(l,v,\Theta) = D(h,\alpha) \left< \NoH \right> J(h) \\
-J(h) = \frac{1}{4 \left< \VoH \right>}
+p(l,v,\Theta) = D(h,\alpha) \left< \NoH \right> |J_{h \rightarrow l}| \\
+|J_{h \rightarrow l}| = \frac{1}{4 \left< \VoH \right>}
 \end{equation}$$
 
 ### Choosing important directions
@@ -3405,13 +3576,13 @@ $$\begin{equation}
 The PDF of the BRDF can therefore be expressed as in equation $\ref{importantPDF}$:
 
 $$\begin{equation}\label{importantPDF}
-p(\theta,\phi) = \frac{\alpha^2}{\pi(cos^2\theta (\alpha^2-1) + 1) cos\theta sin\theta}
+p(\theta,\phi) = \frac{\alpha^2}{\pi(cos^2\theta (\alpha^2-1) + 1)^2} cos\theta sin\theta
 \end{equation}$$
 
 The term $sin\theta$ comes from the differential solid angle $sin\theta d\phi d\theta$ since we integrate over a sphere. We sample $\theta$ and $\phi$ independently:
 
 $$\begin{align*}
-p(\theta) &= \int_0^{2\pi} p(\theta,\phi) d\phi = \frac{2\alpha^2}{cos^2\theta (\alpha^2-1) + 1} cos\theta sin\theta \\
+p(\theta) &= \int_0^{2\pi} p(\theta,\phi) d\phi = \frac{2\alpha^2}{(cos^2\theta (\alpha^2-1) + 1)^2} cos\theta sin\theta \\
 p(\phi) &= \frac{p(\theta,\phi)}{p(\phi)} = \frac{1}{2\pi}
 \end{align*}$$
 
@@ -3475,7 +3646,7 @@ float2 DFG(float NoV, float a) {
     float2 r = 0.0f;
     for (uint i = 0; i < sampleCount; i++) {
         float2 Xi = hammersley(i, sampleCount);
-        float3 H = importanceSampleGGX(Xi, a, N);       
+        float3 H = importanceSampleGGX(Xi, a, N);
         float3 L = 2.0f * dot(V, H) * H - V;
 
         float VoH = saturate(dot(V, H));
@@ -3629,16 +3800,16 @@ void computeShBasis(
     }
 }
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-[Listing [nonNormalizedSHBasis]: C++ implementation to compute a non-normalized SH basis] 
+[Listing [nonNormalizedSHBasis]: C++ implementation to compute a non-normalized SH basis]
 
-SH bases $y^m_l(s)$ for the first 3 bands:
+Normalized SH basis functions $y^m_l(s)$ for the first 3 bands:
 
    Band  |               $m = -2$               |                $m = -1$               |                      $m = 0$                        |                $m = 1$                |                    $m = 2$                    |
 :-------:|:------------------------------------:|:-------------------------------------:|:---------------------------------------------------:|:-------------------------------------:|:---------------------------------------------:|
 $l = 0$  |                                      |                                       | $\frac{1}{2}\sqrt{\frac{1}{\pi}}$                   |                                       |                                               |
 $l = 1$  |                                      | $-\frac{1}{2}\sqrt{\frac{3}{\pi}}y$   | $\frac{1}{2}\sqrt{\frac{3}{\pi}}z$                  | $-\frac{1}{2}\sqrt{\frac{3}{\pi}}x$   |                                               |
 $l = 2$  | $\frac{1}{2}\sqrt{\frac{15}{\pi}}xy$ | $-\frac{1}{2}\sqrt{\frac{15}{\pi}}yz$ | $\frac{1}{4}\sqrt{\frac{5}{\pi}}(2z^2 - x^2 - y^2)$ | $-\frac{1}{2}\sqrt{\frac{15}{\pi}}xz$ | $\frac{1}{4}\sqrt{\frac{15}{\pi}}(x^2 - y^2)$ |
-[Table [basisFunctions]: Basis functions per band]
+[Table [basisFunctions]: Normalized basis functions per band]
 
 ### Decomposition and reconstruction
 
@@ -3701,7 +3872,7 @@ Conveniently, $\sqrt{\frac{4\pi}{2l + 1}} = \frac{1}{K^0_l}$, so in practice we 
 
 $$\begin{equation}
 \hat{C}_{l, even} = 2\pi \frac{(-1)^{\frac{l}{2} - 1}}{(l + 2)(l - 1)} \frac{l!}{2^l (\frac{l!}{2})^2} \\
-\hat{C}_l = \frac{2\pi}{3}
+\hat{C}_1 = \frac{2\pi}{3}
 \end{equation}$$
 
 Here is the C++ code to compute $\hat{C}_l$:
@@ -4069,12 +4240,16 @@ void main() {
 
 # Revisions
 
+February 20, 2019: Cloth shading
+ - Removed Fresnel term from the cloth BRDF
+ - Removed cloth DFG approximations, replaced with a new channel in the DFG LUT
+
 August 21, 2018: Multiscattering
  - Added section [Energy loss in specular reflectance] on how to compensate for energy loss in single scattering BRDFs
 
 August 17, 2018: Specular color
  - Added section [Specular color] to explain how the base color of various metals is computed
- 
+
 August 15, 2018: Fresnel
  - Added a description of the Fresnel effect in section [Fresnel (specular F)]
 
@@ -4083,7 +4258,7 @@ August 9, 2018: Lighting
 
 August 7, 2018: Cloth model
  - Added description of the "Charlie" NDF
- 
+
 August 3, 2018: First public version
 
 # Bibliography

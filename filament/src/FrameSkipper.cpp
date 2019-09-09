@@ -15,53 +15,43 @@
  */
 
 #include "details/FrameSkipper.h"
-
 #include "details/Engine.h"
 
 namespace filament {
 namespace details {
 
 FrameSkipper::FrameSkipper(FEngine& engine, size_t latency) noexcept
-    : mEngine(engine) {
-    latency = std::max(latency, size_t(1));
-    mFences.resize(latency);
+        : mEngine(engine), mLast((uint32_t)std::max(latency, size_t(1)) - 1) {
+    assert(latency <= MAX_FRAME_LATENCY);
 }
 
 FrameSkipper::~FrameSkipper() noexcept {
-    for (FFence* fence : mFences) {
+    for (FFence* fence : mDelayedFences) {
         if (fence) {
             mEngine.destroy(fence);
         }
     }
 }
 
-void FrameSkipper::endFrame() noexcept {
-    mFences.push_back( mEngine.createFence(Fence::Type::HARD) );
-}
-
-bool FrameSkipper::skipFrameNeeded() const noexcept {
-    if (mExtraSkipCount) {
-        mExtraSkipCount--;
-        return true;
-    }
-
-    if (mFences.empty()) {
-        return true;
-    }
-
-    auto& fences = mFences;
-    FFence* fence = fences.front();
+bool FrameSkipper::beginFrame() noexcept {
+    auto& fences = mDelayedFences;
+    FFence* const fence = fences.front();
     if (fence) {
         auto status = fence->wait(Fence::Mode::DONT_FLUSH, 0);
         if (status == Fence::FenceStatus::TIMEOUT_EXPIRED) {
             // fence not ready, skip frame
-            mExtraSkipCount = 0;
-            return true;
+            return false;
         }
         mEngine.destroy(fence);
     }
-    fences.pop_front();
-    return false;
+    // shift all fences down by 1
+    std::move(fences.begin() + 1, fences.end(), fences.begin());
+    fences.back() = nullptr;
+    return true;
+}
+
+void FrameSkipper::endFrame() noexcept {
+    mDelayedFences[mLast] = mEngine.createFence(Fence::Type::HARD);
 }
 
 

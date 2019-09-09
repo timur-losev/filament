@@ -10,8 +10,8 @@ float clearCoatLobe(const PixelParams pixel, const vec3 h, float NoH, float LoH,
 #endif
 
     // clear coat specular lobe
-    float D = distributionClearCoat(pixel.clearCoatLinearRoughness, clearCoatNoH, h);
-    float V = visibilityClearCoat(pixel.clearCoatRoughness, pixel.clearCoatLinearRoughness, LoH);
+    float D = distributionClearCoat(pixel.clearCoatRoughness, clearCoatNoH, h);
+    float V = visibilityClearCoat(LoH);
     float F = F_Schlick(0.04, 1.0, LoH) * pixel.clearCoat; // fix IOR to 1.5
 
     Fcc = F;
@@ -38,12 +38,12 @@ vec3 anisotropicLobe(const PixelParams pixel, const Light light, const vec3 h,
     // Anisotropic parameters: at and ab are the roughness along the tangent and bitangent
     // to simplify materials, we derive them from a single roughness parameter
     // Kulla 2017, "Revisiting Physically Based Shading at Imageworks"
-    float at = max(pixel.linearRoughness * (1.0 + pixel.anisotropy), MIN_LINEAR_ROUGHNESS);
-    float ab = max(pixel.linearRoughness * (1.0 - pixel.anisotropy), MIN_LINEAR_ROUGHNESS);
+    float at = max(pixel.roughness * (1.0 + pixel.anisotropy), MIN_ROUGHNESS);
+    float ab = max(pixel.roughness * (1.0 - pixel.anisotropy), MIN_ROUGHNESS);
 
     // specular anisotropic BRDF
     float D = distributionAnisotropic(at, ab, ToH, BoH, NoH);
-    float V = visibilityAnisotropic(pixel.linearRoughness, at, ab, ToV, BoV, ToL, BoL, NoV, NoL);
+    float V = visibilityAnisotropic(pixel.roughness, at, ab, ToV, BoV, ToL, BoL, NoV, NoL);
     vec3  F = fresnel(pixel.f0, LoH);
 
     return (D * V) * F;
@@ -53,8 +53,8 @@ vec3 anisotropicLobe(const PixelParams pixel, const Light light, const vec3 h,
 vec3 isotropicLobe(const PixelParams pixel, const Light light, const vec3 h,
         float NoV, float NoL, float NoH, float LoH) {
 
-    float D = distribution(pixel.linearRoughness, NoH, h);
-    float V = visibility(pixel.roughness, pixel.linearRoughness, NoV, NoL, LoH);
+    float D = distribution(pixel.roughness, NoH, h);
+    float V = visibility(pixel.roughness, NoV, NoL);
     vec3  F = fresnel(pixel.f0, LoH);
 
     return (D * V) * F;
@@ -70,7 +70,7 @@ vec3 specularLobe(const PixelParams pixel, const Light light, const vec3 h,
 }
 
 vec3 diffuseLobe(const PixelParams pixel, float NoV, float NoL, float LoH) {
-    return pixel.diffuseColor * diffuse(pixel.linearRoughness, NoV, NoL, LoH);
+    return pixel.diffuseColor * diffuse(pixel.roughness, NoV, NoL, LoH);
 }
 
 /**
@@ -101,6 +101,8 @@ vec3 surfaceShading(const PixelParams pixel, const Light light, float occlusion)
     vec3 Fr = specularLobe(pixel, light, h, NoV, NoL, NoH, LoH);
     vec3 Fd = diffuseLobe(pixel, NoV, NoL, LoH);
 
+    // TODO: attenuate the diffuse lobe to avoid energy gain
+
 #if defined(MATERIAL_HAS_CLEAR_COAT)
     float Fcc;
     float clearCoat = clearCoatLobe(pixel, h, NoH, LoH, Fcc);
@@ -110,7 +112,7 @@ vec3 surfaceShading(const PixelParams pixel, const Light light, float occlusion)
     float attenuation = 1.0 - Fcc;
 
 #if defined(MATERIAL_HAS_NORMAL) || defined(MATERIAL_HAS_CLEAR_COAT_NORMAL)
-    vec3 color = (Fd + Fr * (pixel.energyCompensation * attenuation)) * attenuation * NoL;
+    vec3 color = (Fd + Fr * pixel.energyCompensation) * attenuation * NoL;
 
     // If the material has a normal map, we want to use the geometric normal
     // instead to avoid applying the normal map details to the clear coat layer
@@ -121,7 +123,7 @@ vec3 surfaceShading(const PixelParams pixel, const Light light, float occlusion)
     return (color * light.colorIntensity.rgb) *
             (light.colorIntensity.w * light.attenuation * occlusion);
 #else
-    vec3 color = (Fd + Fr * (pixel.energyCompensation * attenuation)) * attenuation + clearCoat;
+    vec3 color = (Fd + Fr * pixel.energyCompensation) * attenuation + clearCoat;
 #endif
 #else
     // The energy compensation term is used to counteract the darkening effect

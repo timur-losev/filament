@@ -1,7 +1,7 @@
 # ==================================================================================================
 # CMake
 # ==================================================================================================
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.10)
 
 # ==================================================================================================
 # Project declaration
@@ -16,6 +16,10 @@ option(ENABLE_JAVA "Compile Java projects, requires a JDK and the JAVA_HOME env 
 
 option(USE_EXTERNAL_GLES3 "Experimental: Compile Filament against OpenGL ES 3" OFF)
 
+option(GENERATE_JS_DOCS "Build WebGL documentation and tutorials" OFF)
+
+option(ENABLE_LTO "Enable link-time optimizations if supported by the compiler" OFF)
+
 # ==================================================================================================
 # OS specific
 # ==================================================================================================
@@ -23,26 +27,66 @@ if (UNIX AND NOT APPLE AND NOT ANDROID AND NOT WEBGL)
     set(LINUX TRUE)
 endif()
 
+if (ANDROID OR WEBGL OR IOS)
+    set(IS_MOBILE_TARGET TRUE)
+endif()
+
 if (WIN32)
+    # Link statically against c/c++ lib to avoid missing redistriburable such as
+    # "VCRUNTIME140.dll not found. Try reinstalling the app.", but give users
+    # a choice to opt for the shared runtime if they want.
+    option(USE_STATIC_CRT "Link against the static runtime libraries." ON)
+
     # On Windows we need to instruct cmake to generate the .def in order to get the .lib required
     # when linking against dlls. CL.EXE will not generate .lib without .def file (or without pragma
     # __declspec(dllexport) in front of each functions).
     set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
+    if (${USE_STATIC_CRT})
+        set(CRT_FLAGS_RELEASE "/MT")
+        set(CRT_FLAGS_DEBUG "/MTd")
+    else()
+        set(CRT_FLAGS_RELEASE "/MD")
+        set(CRT_FLAGS_DEBUG "/MDd")
+    endif()
+
     # TODO: Figure out why pdb generation messes with incremental compilaton.
     # IN RELEASE_WITH_DEBUG_INFO, generate debug info in .obj, no in pdb.
-    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /Z7")
-    set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO} /Z7")
+    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} ${CRT_FLAGS_RELEASE} /Z7")
+    set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO} ${CRT_FLAGS_RELEASE} /Z7")
 
-    # In RELEASE, link statically against c/c++ lib to avoid missing redistriburable such as
-    # "VCRUNTIME140.dll not found. Try reinstalling the app.". Also generate PDBs.
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT /Zi")
-    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /MT /Zi")
+    # In RELEASE, also generate PDBs.
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} ${CRT_FLAGS_RELEASE} /Zi")
+    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} ${CRT_FLAGS_RELEASE} /Zi")
 
     # In DEBUG, avoid generating a PDB file which seems to mess with incremental compilation.
     # Instead generate debug info directly inside obj files.
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Z7")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} /Z7")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${CRT_FLAGS_DEBUG} /Z7")
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${CRT_FLAGS_DEBUG} /Z7")
+endif()
+
+# ==================================================================================================
+# Check if embree is available.
+# This is an optional dependency and can be installed with homebrew, apt-get, etc.
+# ==================================================================================================
+
+find_package(embree 3.0 QUIET PATHS /usr/lib64/cmake)
+if (embree_FOUND AND NOT ANDROID)
+    message("Found embree in ${embree_DIR}")
+    set(MKLDNN_THREADING "TBB")
+    include(third_party/OpenImageDenoise/cmake/resource.cmake)
+    include(third_party/OpenImageDenoise/mkl-dnn/cmake/Threading.cmake)
+    include(third_party/OpenImageDenoise/mkl-dnn/cmake/TBB.cmake)
+    find_package(TBB QUIET)
+    if (TBB_FOUND AND "${TBB_VERSION_MAJOR}" VERSION_EQUAL 2019)
+        message("Found TBB ${TBB_VERSION}")
+        add_definitions(-DFILAMENT_HAS_EMBREE)
+        set(DENOISE_LIBRARY OpenImageDenoise)
+    else()
+        message("TBB 2019 not found.")
+    endif()
+else()
+    message("Embree not found, pipeline features are disabled.")
 endif()
 
 # ==================================================================================================
@@ -63,7 +107,7 @@ set(TOOLS ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 # ==================================================================================================
 # Compiler check
 # ==================================================================================================
-set(MIN_CLANG_VERSION "5.0")
+set(MIN_CLANG_VERSION "6.0")
 
 if (CMAKE_C_COMPILER_ID MATCHES "Clang")
     if (CMAKE_C_COMPILER_VERSION VERSION_LESS MIN_CLANG_VERSION)
@@ -87,6 +131,20 @@ if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" AND "${CMAKE_CXX_SIMULATE_ID}" S
 endif()
 
 # ==================================================================================================
+# Link time optimizations (LTO)
+# ==================================================================================================
+if (ENABLE_LTO)
+    include(CheckIPOSupported)
+
+    check_ipo_supported(RESULT IPO_SUPPORT)
+
+    if (IPO_SUPPORT)
+        message(STATUS "LTO support is enabled")
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+    endif()
+endif()
+
+# ==================================================================================================
 # General compiler flags
 # ==================================================================================================
 set(CXX_STANDARD "-std=c++14")
@@ -106,18 +164,9 @@ endif()
 
 if (LINUX)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-    if (FILAMENT_REQUIRES_CXXABI)
-        # Required in CI environment with custom libc++ and libc++abi
-        link_libraries("-lc++abi")
-    endif()
-    # To distribute our binaries, we must remove the dependency on libc++ and libgcc.
-    if (CMAKE_BUILD_TYPE STREQUAL "Release")
-        link_libraries("-static-libgcc -static-libstdc++")
-    endif()
-else()
-    if (FILAMENT_REQUIRES_CXXABI)
-        message("The option FILAMENT_REQUIRES_CXXABI is unsupported on this platform")
-    endif()
+    link_libraries("-static-libgcc -static-libstdc++")
+    link_libraries(libc++.a)
+    link_libraries(libc++abi.a)
 endif()
 
 if (CYGWIN)
@@ -147,7 +196,7 @@ endif()
 # On Android RELEASE builds, we disable exceptions and RTTI to save some space (about 75 KiB
 # saved by -fno-exception and 10 KiB saved by -fno-rtti).
 if (ANDROID OR WEBGL)
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-exceptions -fno-rtti")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-rtti")
 endif()
 
 # ==================================================================================================
@@ -157,6 +206,10 @@ endif()
 #  -fsanitize=undefined causes extremely long link times
 #  -fsanitize=address causes a crash with assimp, which we can't explain for now
 #set(EXTRA_SANITIZE_OPTIONS "-fsanitize=undefined -fsanitize=address")
+# clang-cl.exe on Windows does not support -fstack-protector.
+if (NOT CLANG_CL)
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fstack-protector")
+endif()
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${EXTRA_SANITIZE_OPTIONS}")
 
 # ==================================================================================================
@@ -200,8 +253,7 @@ endif()
 # By default, build with Vulkan support on desktop platforms, although clients must request to use
 # it at run time. On Android, the build does not include Vulkan support unless CMake is invoked
 # with -DFILAMENT_SUPPORTS_VULKAN=ON.
-# Vulkan is not supported on Windows.
-if (ANDROID OR WIN32 OR WEBGL)
+if (ANDROID OR WIN32 OR WEBGL OR IOS)
     option(FILAMENT_SUPPORTS_VULKAN "Include the Vulkan backend" OFF)
 else()
     option(FILAMENT_SUPPORTS_VULKAN "Include the Vulkan backend" ON)
@@ -209,6 +261,54 @@ endif()
 if (FILAMENT_SUPPORTS_VULKAN)
     add_definitions(-DFILAMENT_DRIVER_SUPPORTS_VULKAN)
 endif()
+
+# Build with Metal support on non-WebGL Apple platforms.
+# Apple's simulator does not support Metal.
+if (APPLE AND (NOT IOS OR IOS_ARCH STREQUAL "arm64") AND NOT WEBGL)
+    option(FILAMENT_SUPPORTS_METAL "Include the Metal backend" ON)
+else()
+    option(FILAMENT_SUPPORTS_METAL "Include the Metal backend" OFF)
+endif()
+if (FILAMENT_SUPPORTS_METAL)
+    add_definitions(-DFILAMENT_SUPPORTS_METAL)
+endif()
+
+# Building filamat increases build times and isn't required for web, so turn it off by default.
+if (NOT WEBGL)
+    option(FILAMENT_BUILD_FILAMAT "Build filamat and JNI buildings" ON)
+else()
+    option(FILAMENT_BUILD_FILAMAT "Build filamat and JNI buildings" OFF)
+endif()
+
+# ==================================================================================================
+# Material compilation flags
+# ==================================================================================================
+
+# Target system.
+if (IS_MOBILE_TARGET)
+    set(MATC_TARGET mobile)
+else()
+    set(MATC_TARGET desktop)
+endif()
+
+set(MATC_API_FLAGS )
+
+# TODO: Add a flag to build Filament without support for OpenGL.
+set(MATC_API_FLAGS ${MATC_API_FLAGS} -a opengl)
+
+if (FILAMENT_SUPPORTS_VULKAN)
+    set(MATC_API_FLAGS ${MATC_API_FLAGS} -a vulkan)
+endif()
+if (FILAMENT_SUPPORTS_METAL)
+    set(MATC_API_FLAGS ${MATC_API_FLAGS} -a metal)
+endif()
+
+# Only optimize materials in Release mode (so error message lines match the source code)
+if (NOT CMAKE_BUILD_TYPE MATCHES Release)
+    set(MATC_OPT_FLAGS -g)
+endif()
+
+set(MATC_BASE_FLAGS ${MATC_API_FLAGS} -p ${MATC_TARGET} ${MATC_OPT_FLAGS})
 
 # ==================================================================================================
 # Distribution
@@ -248,19 +348,91 @@ else()
 endif()
 
 # ==================================================================================================
+# Try to find Vulkan if the SDK is installed, otherwise fall back to the bundled version.
+# This needs to stay in our top-level CMakeLists because it sets up variables that are used by the
+# "bluevk" and "samples" targets.
+# ==================================================================================================
+
+if (FILAMENT_SUPPORTS_VULKAN AND APPLE)
+    find_library(Vulkan_LIBRARY NAMES vulkan HINTS "$ENV{VULKAN_SDK}/lib" "$ENV{VULKAN_SDK}/macOS/lib")
+    if (Vulkan_LIBRARY)
+        set(Vulkan_FOUND ON)
+        message(STATUS "Found Vulkan library in SDK: ${Vulkan_LIBRARY}.")
+        add_definitions(-DFILAMENT_VKLIBRARY_PATH=\"${Vulkan_LIBRARY}\")
+    endif()
+endif()
+
+# ==================================================================================================
+# Common Functions
+# ==================================================================================================
+
+# Sets the following variables: RESGEN_HEADER, RESGEN_SOURCE, RESGEN_FLAGS, RESGEN_SOURCE_FLAGS,
+# and RESGEN_OUTPUTS. Please pass in an ARCHIVE_NAME that is unique to your project, otherwise the
+# incbin directive will happily consume a blob from the wrong project without warnings or errors.
+# Also be sure to include the ASM language in the CMake "project" directive for your project.
+function(get_resgen_vars ARCHIVE_DIR ARCHIVE_NAME)
+    set(OUTPUTS
+        ${ARCHIVE_DIR}/${ARCHIVE_NAME}.bin
+        ${ARCHIVE_DIR}/${ARCHIVE_NAME}.S
+        ${ARCHIVE_DIR}/${ARCHIVE_NAME}.apple.S
+        ${ARCHIVE_DIR}/${ARCHIVE_NAME}.h
+    )
+    if (IOS)
+        set(ASM_ARCH_FLAG "-arch ${DIST_ARCH}")
+    endif()
+    if (APPLE)
+        set(ASM_SUFFIX ".apple")
+    endif()
+    set(RESGEN_HEADER "${ARCHIVE_DIR}/${ARCHIVE_NAME}.h" PARENT_SCOPE)
+    # Visual Studio makes it difficult to use assembly without using MASM. MASM doesn't support
+    # the equivalent of .incbin, so on Windows we'll just tell resgen to output a C file.
+    if (WEBGL OR WIN32 OR ANDROID_ON_WINDOWS)
+        set(RESGEN_OUTPUTS "${OUTPUTS};${ARCHIVE_DIR}/${ARCHIVE_NAME}.c" PARENT_SCOPE)
+        set(RESGEN_FLAGS -cx ${ARCHIVE_DIR} -p ${ARCHIVE_NAME} PARENT_SCOPE)
+        set(RESGEN_SOURCE "${ARCHIVE_DIR}/${ARCHIVE_NAME}.c" PARENT_SCOPE)
+    else()
+        set(RESGEN_OUTPUTS "${OUTPUTS}" PARENT_SCOPE)
+        set(RESGEN_FLAGS -x ${ARCHIVE_DIR} -p ${ARCHIVE_NAME} PARENT_SCOPE)
+        set(RESGEN_SOURCE "${ARCHIVE_DIR}/${ARCHIVE_NAME}${ASM_SUFFIX}.S" PARENT_SCOPE)
+        set(RESGEN_SOURCE_FLAGS "-I${ARCHIVE_DIR} ${ASM_ARCH_FLAG}" PARENT_SCOPE)
+    endif()
+endfunction()
+
+# ==================================================================================================
 # Sub-projects
 # ==================================================================================================
+
 # Common to all platforms
 add_subdirectory(${EXTERNAL}/libgtest/tnt)
 add_subdirectory(${LIBRARIES}/filabridge)
 add_subdirectory(${LIBRARIES}/filaflat)
-add_subdirectory(${LIBRARIES}/filamat)
+add_subdirectory(${LIBRARIES}/filameshio)
+add_subdirectory(${LIBRARIES}/geometry)
+add_subdirectory(${LIBRARIES}/gltfio)
+add_subdirectory(${LIBRARIES}/ibl)
 add_subdirectory(${LIBRARIES}/image)
+add_subdirectory(${LIBRARIES}/rays)
 add_subdirectory(${LIBRARIES}/math)
 add_subdirectory(${LIBRARIES}/utils)
 add_subdirectory(${FILAMENT}/filament)
 add_subdirectory(${FILAMENT}/shaders)
+add_subdirectory(${EXTERNAL}/civetweb/tnt)
 add_subdirectory(${EXTERNAL}/robin-map/tnt)
+add_subdirectory(${EXTERNAL}/smol-v/tnt)
+add_subdirectory(${EXTERNAL}/benchmark/tnt)
+add_subdirectory(${EXTERNAL}/meshoptimizer)
+add_subdirectory(${EXTERNAL}/cgltf/tnt)
+add_subdirectory(${EXTERNAL}/xatlas/tnt)
+add_subdirectory(${EXTERNAL}/stb/tnt)
+
+if (FILAMENT_BUILD_FILAMAT)
+    # spirv-tools must come before filamat, as filamat relies on the presence of the
+    # spirv-tools_SOURCE_DIR variable.
+    add_subdirectory(${EXTERNAL}/spirv-tools)
+    add_subdirectory(${EXTERNAL}/glslang/tnt)
+    add_subdirectory(${EXTERNAL}/spirv-cross/tnt)
+    add_subdirectory(${LIBRARIES}/filamat)
+endif()
 
 if (FILAMENT_SUPPORTS_VULKAN)
     add_subdirectory(${LIBRARIES}/bluevk)
@@ -274,50 +446,54 @@ endif()
 set (FILAMENT_SAMPLES_BINARY_DIR ${PROJECT_BINARY_DIR}/samples)
 
 if (WEBGL)
-    add_subdirectory(${FILAMENT}/samples/web)
+    add_subdirectory(web/filament-js)
+    add_subdirectory(web/samples)
 
-    add_subdirectory(${LIBRARIES}/filagui)
+    if (GENERATE_JS_DOCS)
+        add_subdirectory(web/docs)
+    endif()
 
     add_subdirectory(${EXTERNAL}/imgui/tnt)
-    add_subdirectory(${EXTERNAL}/stb/tnt)
 endif()
 
-if (NOT ANDROID AND NOT WEBGL)
-    add_subdirectory(${FILAMENT}/samples)
-
+if (NOT ANDROID AND NOT WEBGL AND NOT IOS)
     add_subdirectory(${LIBRARIES}/bluegl)
     add_subdirectory(${LIBRARIES}/filagui)
     add_subdirectory(${LIBRARIES}/imageio)
+    add_subdirectory(${LIBRARIES}/matdbg)
 
-    add_subdirectory(${FILAMENT}/java)
+    add_subdirectory(${FILAMENT}/java/filamat)
+    add_subdirectory(${FILAMENT}/java/filament)
+    add_subdirectory(${FILAMENT}/samples)
 
-    # must come first because of glslang
-    add_subdirectory(${EXTERNAL}/spirv-tools)
-
+    add_subdirectory(${EXTERNAL}/astcenc/tnt)
+    add_subdirectory(${EXTERNAL}/etc2comp)
     add_subdirectory(${EXTERNAL}/getopt)
-    add_subdirectory(${EXTERNAL}/glslang/tnt)
     add_subdirectory(${EXTERNAL}/imgui/tnt)
     add_subdirectory(${EXTERNAL}/libassimp/tnt)
     add_subdirectory(${EXTERNAL}/libpng/tnt)
     add_subdirectory(${EXTERNAL}/libsdl2/tnt)
     add_subdirectory(${EXTERNAL}/libz/tnt)
     add_subdirectory(${EXTERNAL}/skylight/tnt)
-    add_subdirectory(${EXTERNAL}/spirv-cross/tnt)
-    add_subdirectory(${EXTERNAL}/stb/tnt)
     add_subdirectory(${EXTERNAL}/tinyexr/tnt)
-
     add_subdirectory(${TOOLS}/cmgen)
     add_subdirectory(${TOOLS}/filamesh)
+    add_subdirectory(${TOOLS}/glslminifier)
     add_subdirectory(${TOOLS}/matc)
     add_subdirectory(${TOOLS}/matinfo)
     add_subdirectory(${TOOLS}/mipgen)
     add_subdirectory(${TOOLS}/normal-blending)
+    add_subdirectory(${TOOLS}/resgen)
     add_subdirectory(${TOOLS}/roughness-prefilter)
     add_subdirectory(${TOOLS}/skygen)
     add_subdirectory(${TOOLS}/specular-color)
 endif()
 
-# Generate exported executables for cross-compiled builds (Android and WebGL)
+if (DENOISE_LIBRARY)
+    add_subdirectory(${EXTERNAL}/OpenImageDenoise/tnt)
+endif()
+
+# Generate exported executables for cross-compiled builds (Android, WebGL, and iOS)
 if (NOT CMAKE_CROSSCOMPILING)
-    export(TARGETS matc cmgen filamesh FILE ${IMPORT_EXECUTABLES})
+    export(TARGETS matc cmgen filamesh mipgen resgen glslminifier FILE ${IMPORT_EXECUTABLES})
 endif()

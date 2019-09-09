@@ -16,6 +16,25 @@
 
 #pragma once
 
+#if defined (WIN32)
+
+#ifdef max
+#undef max
+#endif
+
+#ifdef min
+#undef min
+#endif
+
+#ifdef far
+#undef far
+#endif
+
+#ifdef near
+#undef near
+#endif
+
+#endif
 
 // compatibility with non-clang compilers...
 #ifndef __has_attribute
@@ -46,6 +65,22 @@
 
 #ifdef _MSC_VER
 #   define MATH_EMPTY_BASES __declspec(empty_bases)
-#else
+// MSVC does not support loop unrolling hints
+#   define MATH_NOUNROLL
+
+// Sadly, MSVC does not support __builtin_constant_p
+#   ifndef MAKE_CONSTEXPR
+#       define MAKE_CONSTEXPR(e) (e)
+#   endif
+
+#else // _MSC_VER
+
 #   define MATH_EMPTY_BASES
-#endif
+// C++11 allows pragmas to be specified as part of defines using the _Pragma syntax.
+#   define MATH_NOUNROLL _Pragma("nounroll")
+
+#   ifndef MAKE_CONSTEXPR
+#       define MAKE_CONSTEXPR(e) __builtin_constant_p(e) ? (e) : (e)
+#   endif
+
+#endif // _MSC_VER

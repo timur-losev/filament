@@ -26,19 +26,25 @@
 #include "details/FrameSkipper.h"
 #include "details/SwapChain.h"
 
-#include "driver/DriverApiForward.h"
-#include "driver/Handle.h"
+#include "private/backend/DriverApiForward.h"
 
 #include <filament/Renderer.h>
-#include <filament/driver/DriverEnums.h>
+#include <filament/View.h>
+
+#include <backend/DriverEnums.h>
+#include <backend/Handle.h>
 
 #include <utils/compiler.h>
 #include <utils/Allocator.h>
+#include <utils/JobSystem.h>
 #include <utils/Slice.h>
 
 namespace filament {
 
+namespace backend {
 class Driver;
+} // namespace backend
+
 class View;
 
 namespace details {
@@ -59,86 +65,68 @@ public:
 
     FEngine& getEngine() const noexcept { return mEngine; }
 
+    math::float4 getShaderUserTime() const { return mShaderUserTime; }
+
     // do all the work here!
     void render(FView const* view);
-    void renderJob(ArenaScope& arena, FView* view);
+    void renderJob(ArenaScope& arena, FView& view);
+
+    void copyFrame(FSwapChain* dstSwapChain, Viewport const& dstViewport,
+            Viewport const& srcViewport, CopyFrameFlag flags);
 
     bool beginFrame(FSwapChain* swapChain);
     void endFrame();
 
+    void resetUserTime();
+
     void readPixels(uint32_t xoffset, uint32_t yoffset, uint32_t width, uint32_t height,
-            driver::PixelBufferDescriptor&& buffer);
+            backend::PixelBufferDescriptor&& buffer);
 
     // Clean-up everything, this is typically called when the client calls Engine::destroyRenderer()
     void terminate(FEngine& engine);
 
 private:
+    friend class Renderer;
     using Command = RenderPass::Command;
 
-    // this class is defined in RenderPass.cpp
-    class ColorPass final : public RenderPass {
-        using DriverApi = driver::DriverApi;
-        utils::JobSystem& js;
-        utils::JobSystem::Job* jobFroxelize = nullptr;
-        FView* const view;
-        Handle<HwRenderTarget> const rth;
-        void beginRenderPass(driver::DriverApi& driver, Viewport const& viewport, const CameraInfo& camera) noexcept override;
-        void endRenderPass(DriverApi& driver, Viewport const& viewport) noexcept override;
-    public:
-        ColorPass(const char* name, utils::JobSystem& js, utils::JobSystem::Job* jobFroxelize,
-                FView* view, Handle<HwRenderTarget> rth);
-        static void renderColorPass(FEngine& engine, utils::JobSystem& js,
-                Handle<HwRenderTarget> rth,
-                FView* view, Viewport const& scaledViewport,
-                utils::GrowingSlice<Command>& commands) noexcept;
-    };
+    backend::Handle<backend::HwRenderTarget> getRenderTarget(FView& view) const noexcept;
 
-    // this class is defined in RenderPass.cpp
-    class ShadowPass final : public RenderPass {
-        using DriverApi = driver::DriverApi;
-        ShadowMap const& shadowMap;
-        void beginRenderPass(driver::DriverApi& driver, Viewport const& viewport, const CameraInfo& camera) noexcept override;
-        void endRenderPass(DriverApi& driver, Viewport const& viewport) noexcept override;
-    public:
-        ShadowPass(const char* name, ShadowMap const& shadowMap) noexcept;
-        static void renderShadowMap(FEngine& engine, utils::JobSystem& js,
-                FView* view, utils::GrowingSlice<Command>& commands) noexcept;
-    };
+    RenderPass::CommandTypeFlags getCommandType(View::DepthPrepass prepass) const noexcept;
 
-    Handle<HwRenderTarget> getRenderTarget() const noexcept { return mRenderTarget; }
-
-    void recordHighWatermark(utils::Slice<Command> const& commands) noexcept {
-#ifndef NDEBUG
-        mCommandsHighWatermark = std::max(mCommandsHighWatermark, size_t(commands.size()));
-#endif
+    void recordHighWatermark(size_t watermark) noexcept {
+        mCommandsHighWatermark = std::max(mCommandsHighWatermark, watermark);
     }
 
     size_t getCommandsHighWatermark() const noexcept {
         return mCommandsHighWatermark * sizeof(RenderPass::Command);
     }
 
-    driver::TextureFormat getHdrFormat() const noexcept {
-        const bool translucent = mSwapChain->isTransparent();
-        return (translucent || !mIsRGB16FSupported) ? driver::TextureFormat::RGBA16F
-                                                    : driver::TextureFormat::RGB16F;
-    }
+    backend::TextureFormat getHdrFormat(const View& view) const noexcept;
+    backend::TextureFormat getLdrFormat() const noexcept;
 
-    driver::TextureFormat getLdrFormat() const noexcept {
-        const bool translucent = mSwapChain->isTransparent();
-        return (translucent || !mIsRGB8Supported) ? driver::TextureFormat::RGBA8
-                                                  : driver::TextureFormat::RGB8;
+    using clock = std::chrono::steady_clock;
+    using Epoch = clock::time_point;
+    using duration = clock::duration;
+
+    Epoch getUserEpoch() const { return mUserEpoch; }
+    duration getUserTime() const noexcept {
+        return clock::now() - getUserEpoch();
     }
 
     // keep a reference to our engine
     FEngine& mEngine;
     FrameSkipper mFrameSkipper;
-    Handle<HwRenderTarget> mRenderTarget;
+    backend::Handle<backend::HwRenderTarget> mRenderTarget;
     FSwapChain* mSwapChain = nullptr;
     size_t mCommandsHighWatermark = 0;
     uint32_t mFrameId = 0;
     FrameInfoManager mFrameInfoManager;
-    bool mIsRGB16FSupported : 1;
+    backend::TextureFormat mHdrTranslucent{};
+    backend::TextureFormat mHdrQualityMedium{};
+    backend::TextureFormat mHdrQualityHigh{};
     bool mIsRGB8Supported : 1;
+    Epoch mUserEpoch;
+    math::float4 mShaderUserTime{};
 
     // per-frame arena for this Renderer
     LinearAllocatorArena& mPerRenderPassArena;

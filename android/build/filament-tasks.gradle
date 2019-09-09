@@ -33,6 +33,7 @@ List<File> getBinaries(String name, File toolsPath) {
 ext.matcFullPath = getBinaries('matc', filamentToolsPath)
 ext.cmgenFullPath = getBinaries('cmgen', filamentToolsPath)
 ext.filameshFullPath = getBinaries('filamesh', filamentToolsPath)
+ext.resgenFullPath = getBinaries('resgen', filamentToolsPath)
 
 class LogOutputStream extends ByteArrayOutputStream {
     private final Logger logger;
@@ -83,20 +84,21 @@ class MaterialCompiler extends DefaultTask {
         }
 
         inputs.outOfDate { InputFileDetails outOfDate ->
+            if (outOfDate.file.directory) return
             def file = outOfDate.file
 
-            def out = new LogOutputStream(logger, LogLevel.INFO)
+            def out = new LogOutputStream(logger, LogLevel.LIFECYCLE)
             def err = new LogOutputStream(logger, LogLevel.ERROR)
 
             def header = ("Compiling material " + file + "\n").getBytes()
-            err.write(header)
             out.write(header)
+            out.flush()
 
             project.exec {
                 standardOutput out
                 errorOutput err
                 executable "${matcPath}"
-                args('-O', '-p', 'mobile', '-o', getOutputFile(file), file)
+                args('-a', 'all', '-p', 'mobile', '-o', getOutputFile(file), file)
             }
         }
 
@@ -114,6 +116,7 @@ class MaterialCompiler extends DefaultTask {
 // This task handles incremental builds
 class IblGenerator extends DefaultTask {
     File cmgenPath
+    String cmgenArgs = null;
 
     @SuppressWarnings("GroovyUnusedDeclaration")
     @InputFile
@@ -137,12 +140,12 @@ class IblGenerator extends DefaultTask {
         inputs.outOfDate { InputFileDetails outOfDate ->
             def file = outOfDate.file
 
-            def out = new LogOutputStream(logger, LogLevel.INFO)
+            def out = new LogOutputStream(logger, LogLevel.LIFECYCLE)
             def err = new LogOutputStream(logger, LogLevel.ERROR)
 
             def header = ("Generating IBL " + file + "\n").getBytes()
-            err.write(header)
             out.write(header)
+            out.flush()
 
             project.exec {
                 standardOutput out
@@ -153,9 +156,13 @@ class IblGenerator extends DefaultTask {
 
             project.exec {
                 standardOutput out
+                if (!cmgenArgs) {
+                    cmgenArgs = '--format=rgb32f --extract-blur=0.08 --extract=' + outputDir.absolutePath
+                }
+                cmgenArgs = cmgenArgs + " " + file
                 errorOutput err
                 executable "${cmgenPath}"
-                args('--format=rgbm', '--extract-blur=0.08', "--extract=${outputDir.absolutePath}", file)
+                args(cmgenArgs.split())
             }
         }
 
@@ -196,12 +203,12 @@ class MeshCompiler extends DefaultTask {
         inputs.outOfDate { InputFileDetails outOfDate ->
             def file = outOfDate.file
 
-            def out = new LogOutputStream(logger, LogLevel.INFO)
+            def out = new LogOutputStream(logger, LogLevel.LIFECYCLE)
             def err = new LogOutputStream(logger, LogLevel.ERROR)
 
             def header = ("Compiling mesh " + file + "\n").getBytes()
-            err.write(header)
             out.write(header)
+            out.flush()
 
             project.exec {
                 standardOutput out

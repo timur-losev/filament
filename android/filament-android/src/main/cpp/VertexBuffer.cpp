@@ -21,11 +21,15 @@
 
 #include <filament/VertexBuffer.h>
 
-#include "CallbackUtils.h"
-#include "NioUtils.h"
+#include <math/vec3.h>
+#include <math/vec4.h>
+
+#include "common/CallbackUtils.h"
+#include "common/NioUtils.h"
 
 using namespace filament;
-using namespace driver;
+using namespace filament::math;
+using namespace backend;
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_google_android_filament_VertexBuffer_nCreateBuilder(JNIEnv *env, jclass type) {
@@ -65,9 +69,9 @@ Java_com_google_android_filament_VertexBuffer_nBuilderAttribute(JNIEnv *env, jcl
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_google_android_filament_VertexBuffer_nBuilderNormalized(JNIEnv *env, jclass type,
-        jlong nativeBuilder, jint attribute) {
+        jlong nativeBuilder, jint attribute, jboolean normalized) {
     VertexBuffer::Builder* builder = (VertexBuffer::Builder *) nativeBuilder;
-    builder->normalized((VertexAttribute) attribute);
+    builder->normalized((VertexAttribute) attribute, normalized);
 }
 
 extern "C" JNIEXPORT jlong JNICALL
@@ -106,7 +110,47 @@ Java_com_google_android_filament_VertexBuffer_nSetBufferAt(JNIEnv *env, jclass t
     BufferDescriptor desc(data, sizeInBytes, &JniBufferCallback::invoke, callback);
 
     vertexBuffer->setBufferAt(*engine, (uint8_t) bufferIndex, std::move(desc),
-            (uint32_t) destOffsetInBytes, (uint32_t) sizeInBytes);
+            (uint32_t) destOffsetInBytes);
 
     return 0;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_google_android_filament_VertexBuffer_nPopulateTangentQuaternions(JNIEnv *env,
+        jclass type, jint quatType, jint quatCount, jobject outBuffer, jint outRemaining,
+        jint outStride, jobject normals, jint normalsRemaining, jint normalsStride,
+        jobject tangents, jint tangentsRemaining, jint tangentsStride) {
+
+    AutoBuffer outNioBuffer(env, outBuffer, outRemaining, true);
+    void* outData = outNioBuffer.getData();
+
+    AutoBuffer normalsNioBuffer(env, normals, normalsRemaining);
+    auto normalsData = (const float3*) normalsNioBuffer.getData();
+
+    if (tangents) {
+        AutoBuffer tangentsNioBuffer(env, tangents, tangentsRemaining);
+        auto tangentsData = (const float4*) tangentsNioBuffer.getData();
+        VertexBuffer::populateTangentQuaternions({
+            .quatType = (VertexBuffer::QuatType) quatType,
+            .quatCount = (size_t) quatCount,
+            .outBuffer = outData,
+            .outStride = (size_t) outStride,
+            .normals = normalsData,
+            .normalsStride = (size_t) normalsStride,
+            .tangents = tangentsData,
+            .tangentsStride = (size_t) tangentsStride
+        });
+        return;
+    }
+
+    VertexBuffer::populateTangentQuaternions({
+        .quatType = (VertexBuffer::QuatType) quatType,
+        .quatCount = (size_t) quatCount,
+        .outBuffer = outData,
+        .outStride = (size_t) outStride,
+        .normals = normalsData,
+        .normalsStride = (size_t) normalsStride,
+        .tangents = nullptr,
+        .tangentsStride = 0
+    });
 }

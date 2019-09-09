@@ -19,13 +19,13 @@
 #include <jni.h>
 
 #include <filament/Stream.h>
-#include <filament/driver/PixelBufferDescriptor.h>
+#include <backend/PixelBufferDescriptor.h>
 
-#include "NioUtils.h"
-#include "CallbackUtils.h"
+#include "common/NioUtils.h"
+#include "common/CallbackUtils.h"
 
 using namespace filament;
-using namespace driver;
+using namespace backend;
 
 class StreamBuilder {
 public:
@@ -145,12 +145,18 @@ Java_com_google_android_filament_Stream_nReadPixels(JNIEnv *env, jclass,
     void *buffer = nioBuffer.getData();
     auto *callback = JniBufferCallback::make(engine, env, handler, runnable, std::move(nioBuffer));
 
-    PixelBufferDescriptor desc(buffer, sizeInBytes, (driver::PixelDataFormat) format,
-            (driver::PixelDataType) type, (uint8_t) alignment, (uint32_t) left, (uint32_t) top,
+    PixelBufferDescriptor desc(buffer, sizeInBytes, (backend::PixelDataFormat) format,
+            (backend::PixelDataType) type, (uint8_t) alignment, (uint32_t) left, (uint32_t) top,
             (uint32_t) stride, &JniBufferCallback::invoke, callback);
 
     stream->readPixels(uint32_t(xoffset), uint32_t(yoffset), uint32_t(width), uint32_t(height),
             std::move(desc));
 
     return 0;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_google_android_filament_Stream_nGetTimestamp(JNIEnv*, jclass, jlong nativeStream) {
+    Stream *stream = (Stream *) nativeStream;
+    return stream->getTimestamp();
 }

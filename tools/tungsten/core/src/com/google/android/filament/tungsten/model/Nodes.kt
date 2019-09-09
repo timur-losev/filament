@@ -19,35 +19,15 @@ package com.google.android.filament.tungsten.model
 import com.google.android.filament.tungsten.compiler.GraphCompiler
 import com.google.android.filament.tungsten.compiler.Expression
 import com.google.android.filament.tungsten.compiler.Literal
-import com.google.android.filament.tungsten.compiler.trim
 import com.google.android.filament.tungsten.properties.ColorChooser
+import com.google.android.filament.tungsten.properties.FloatSlider
 import com.google.android.filament.tungsten.properties.MultipleChoice
-
-private val adderNodeCompile = fun(node: Node, compiler: GraphCompiler): Node {
-    val outputSlot = node.getOutputSlot("result")
-
-    val a = compiler.compileAndRetrieveExpression(node.getInputSlot("a"))
-    val b = compiler.compileAndRetrieveExpression(node.getInputSlot("b"))
-
-    // Trim the expressions so that they're the same dimension.
-    val (aExpression, bExpression) = trim(a ?: Literal(4), b ?: Literal(4))
-
-    compiler.setExpressionForSlot(node.getInputSlot("a"), aExpression)
-    compiler.setExpressionForSlot(node.getInputSlot("b"), bExpression)
-
-    val temp = compiler.getNewTemporaryVariableName("adder")
-    val resultDimensions = aExpression.dimensions
-    compiler.addCodeToMaterialFunctionBody(
-            "float$resultDimensions $temp = $aExpression + $bExpression;\n")
-
-    compiler.setExpressionForSlot(outputSlot, Expression(temp, resultDimensions))
-
-    return node
-}
+import com.google.android.filament.tungsten.properties.TextureFileChooser
 
 private val UNLIT_INPUTS = listOf("baseColor", "emissive")
-private val LIT_INPUTS = listOf("baseColor", "metallic", "roughness", "reflectance", "clearCoat",
-        "clearCoatRoughness", "anisotropy", "anisotropyDirection", "ambientOcclusion", "emissive")
+private val LIT_INPUTS = listOf("normal", "baseColor", "metallic", "roughness", "reflectance",
+        "clearCoat", "clearCoatRoughness", "anisotropy", "anisotropyDirection", "ambientOcclusion",
+        "emissive")
 
 private val inputSlotsForShadingModel = { shadingModel: String ->
     when (shadingModel) {
@@ -62,6 +42,11 @@ private val shaderNodeCompile = fun(node: Node, compiler: GraphCompiler): Node {
     compiler.setShadingModel(shadingModel)
 
     val compileMaterialInput = { name: String, dimensions: Int ->
+        // The "normal" input is special, and its code must go before the call to prepareMaterial().
+        if (name == "normal") {
+            compiler.setCurrentCodeSection(GraphCompiler.CodeSection.BEFORE_PREPARE_MATERIAL)
+        }
+
         val inputSlot = node.getInputSlot(name)
         val connectedExpression = compiler.compileAndRetrieveExpression(inputSlot)
         val isConnected = connectedExpression != null
@@ -74,6 +59,8 @@ private val shaderNodeCompile = fun(node: Node, compiler: GraphCompiler): Node {
             compiler.addCodeToMaterialFunctionBody("material.$name = $conformedExpression;\n")
         }
         compiler.setExpressionForSlot(inputSlot, conformedExpression)
+
+        compiler.setCurrentCodeSection(GraphCompiler.CodeSection.AFTER_PREPARE_MATERIAL)
     }
 
     // Compile inputs common to all shading models.
@@ -94,6 +81,11 @@ private val shaderNodeCompile = fun(node: Node, compiler: GraphCompiler): Node {
         compileMaterialInput("ambientOcclusion", 1)
     }
 
+    if (shadingModel == "lit") {
+        // "normal" must be compiled first. If it has any dependencies that are connected to other
+        // inputs, we need to ensure their code comes before prepareMaterial()
+        compileMaterialInput("normal", 3)
+    }
     compileCommonInputs()
     when (shadingModel) {
         "lit" -> compileLitInputs()
@@ -106,11 +98,13 @@ private val shaderNodeCompile = fun(node: Node, compiler: GraphCompiler): Node {
 private val constantFloat3NodeCompile = fun(node: Node, compiler: GraphCompiler): Node {
     val outputSlot = node.getOutputSlot("result")
 
-    val color = (node.properties[0].value as Float3)
+    val x = (node.properties[0].value as FloatValue)
+    val y = (node.properties[1].value as FloatValue)
+    val z = (node.properties[2].value as FloatValue)
 
     val outputVariable = compiler.getNewTemporaryVariableName("float3Constant")
     compiler.addCodeToMaterialFunctionBody(
-            "float3 $outputVariable = float3(${color.x}, ${color.y}, ${color.z});\n")
+            "float3 $outputVariable = float3(${x.v}, ${y.v}, ${z.v});\n")
 
     compiler.setExpressionForSlot(outputSlot, Expression(outputVariable, 3))
 
@@ -126,29 +120,114 @@ private val float3ParameterNodeCompile = fun(node: Node, compiler: GraphCompiler
     return node
 }
 
+private val constantFloatNodeCompile = fun(node: Node, compiler: GraphCompiler): Node {
+    val value = (node.properties[0].value as FloatValue)
+
+    val outputVariable = compiler.getNewTemporaryVariableName("floatConstant")
+    compiler.addCodeToMaterialFunctionBody("float $outputVariable = ${value.v};\n")
+
+    val outputSlot = node.getOutputSlot("out")
+    compiler.setExpressionForSlot(outputSlot, Expression(outputVariable, 1))
+
+    return node
+}
+
 private val constantFloat2NodeCompile = fun(node: Node, compiler: GraphCompiler): Node {
     val outputSlot = node.getOutputSlot("result")
 
-    val color = (node.properties[0].value as Float3)
+    val x = (node.properties[0].value as FloatValue)
+    val y = (node.properties[1].value as FloatValue)
 
     val outputVariable = compiler.getNewTemporaryVariableName("float2Constant")
     compiler.addCodeToMaterialFunctionBody(
-            "float2 $outputVariable = float2(${color.x}, ${color.y});\n")
+            "float2 $outputVariable = float2(${x.v}, ${y.v});\n")
 
     compiler.setExpressionForSlot(outputSlot, Expression(outputVariable, 2))
 
     return node
 }
 
-val createAdderNode = fun(id: NodeId): Node {
-    return Node(
-        id = id,
-        type = "adder",
-        compileFunction = adderNodeCompile,
-        inputSlots = listOf("a", "b"),
-        outputSlots = listOf("result")
-    )
+/**
+ * Process UV inputs, defaulting to getUV0() if nothing is connected.
+ */
+private fun resolveUvInput(input: Expression?, compiler: GraphCompiler): Expression {
+    return if (input != null) {
+        input.rg
+    } else {
+        compiler.requireAttribute("uv0")
+        Expression("getUV0()", 2)
+    }
 }
+
+private val textureSampleCompile = fun(node: Node, compiler: GraphCompiler): Node {
+    val parameter = compiler.addParameter("sampler2d", "texture")
+    compiler.associateParameterWithProperty(parameter, node.getPropertyHandle("textureSource"))
+
+    // If nothing is connected to the UV input, default to getUV0()
+    val uvInput = compiler.compileAndRetrieveExpression(node.getInputSlot("uv"))
+    val uvs = resolveUvInput(uvInput, compiler)
+    compiler.setExpressionForSlot(node.getInputSlot("uv"), uvs)
+
+    val outputVariable = compiler.getNewTemporaryVariableName("textureSample")
+    compiler.addCodeToMaterialFunctionBody(
+            "float4 $outputVariable = texture(materialParams_${parameter.name}, $uvs);\n", 4)
+    compiler.setExpressionForSlot(node.getOutputSlot("out"),
+            Expression(outputVariable, 4))
+
+    return node
+}
+
+private val timeNodeCompile = fun(node: Node, compiler: GraphCompiler): Node {
+    compiler.setExpressionForSlot(node.getOutputSlot("out"), Expression("getTime()", 1))
+    return node
+}
+
+private val texCoordNodeCompile = fun(node: Node, compiler: GraphCompiler): Node {
+    compiler.requireAttribute("uv0")
+    compiler.setExpressionForSlot(node.getOutputSlot("out"), Expression("getUV0()", 2))
+    return node
+}
+
+private val pannerNodeCompile = fun(node: Node, compiler: GraphCompiler): Node {
+    val panFunction = compiler.allocateGlobalFunction("pan", "panner")
+    compiler.provideFunctionDefinition(panFunction, """
+        float2 $panFunction(float2 coords, float2 speed) {
+            float2 invSpeed = 1.0 / speed;
+            float2 offset = mod(float2(getTime(), getTime()), invSpeed) / invSpeed;
+            float2 panned = coords + offset;
+            return float2(fract(panned.x), fract(panned.y));
+        }
+    """.trimIndent())
+
+    val uvInput = compiler.compileAndRetrieveExpression(node.getInputSlot("uv"))
+    val uvs = resolveUvInput(uvInput, compiler)
+
+    val speedSlot = node.getInputSlot("speed")
+    val speedInput = compiler.compileAndRetrieveExpression(node.getInputSlot("speed"))
+            ?: Literal(2, 1.0f)
+    compiler.setExpressionForSlot(node.getInputSlot("uv"), uvs)
+    compiler.setExpressionForSlot(speedSlot, speedInput)
+
+    val outputExpression = "$panFunction(${uvs}, $speedInput)"
+    compiler.setExpressionForSlot(node.getOutputSlot("out"), Expression(outputExpression, 2))
+
+    return node
+}
+
+val createTextureSampleNode = fun(id: NodeId) =
+        Node(
+            id = id,
+            type = "textureSample",
+            compileFunction = textureSampleCompile,
+            inputSlots = listOf("uv"),
+            outputSlots = listOf("out"),
+            properties = listOf(Property(
+                name = "textureSource",
+                value = TextureFile(),
+                type = PropertyType.MATERIAL_PARAMETER,
+                editorFactory = ::TextureFileChooser
+            ))
+        )
 
 val createFloat3ConstantNode = fun(id: NodeId): Node {
     return Node(
@@ -156,10 +235,23 @@ val createFloat3ConstantNode = fun(id: NodeId): Node {
         type = "float3Constant",
         compileFunction = constantFloat3NodeCompile,
         outputSlots = listOf("result"),
-        properties = listOf(Property(
-            name = "value",
-            value = Float3(),
-            editorFactory = ::ColorChooser))
+        properties = listOf(
+            Property(
+                name = "x",
+                value = FloatValue(),
+                editorFactory = ::FloatSlider
+            ),
+            Property(
+                name = "y",
+                value = FloatValue(),
+                editorFactory = ::FloatSlider
+            ),
+            Property(
+                name = "z",
+                value = FloatValue(),
+                editorFactory = ::FloatSlider
+            )
+        )
     )
 }
 
@@ -177,18 +269,64 @@ val createFloat3ParameterNode = fun(id: NodeId): Node {
     )
 }
 
+val createFloatConstantNode = fun(id: NodeId) =
+    Node(
+        id = id,
+        type = "floatConstant",
+        compileFunction = constantFloatNodeCompile,
+        outputSlots = listOf("out"),
+        properties = listOf(Property(
+            name = "value",
+            value = FloatValue(),
+            editorFactory = ::FloatSlider
+        ))
+    )
+
 val createFloat2ConstantNode = fun(id: NodeId): Node {
     return Node(
         id = id,
         type = "float2Constant",
         compileFunction = constantFloat2NodeCompile,
         outputSlots = listOf("result"),
-        properties = listOf(Property(
-            name = "value",
-            value = Float3(),
-            editorFactory = ::ColorChooser))
+        properties = listOf(
+            Property(
+                name = "x",
+                value = FloatValue(),
+                editorFactory = ::FloatSlider
+            ),
+            Property(
+                name = "y",
+                value = FloatValue(),
+                editorFactory = ::FloatSlider
+            )
+        )
     )
 }
+
+val createTimeNode = fun(id: NodeId): Node =
+    Node(
+        id = id,
+        type = "time",
+        compileFunction = timeNodeCompile,
+        outputSlots = listOf("out")
+    )
+
+val createTexCoordNode = fun(id: NodeId): Node =
+    Node(
+        id = id,
+        type = "texCoord",
+        compileFunction = texCoordNodeCompile,
+        outputSlots = listOf("out")
+    )
+
+val createPannerNode = fun(id: NodeId): Node =
+    Node(
+        id = id,
+        type = "panner",
+        compileFunction = pannerNodeCompile,
+        inputSlots = listOf("uv", "speed"),
+        outputSlots = listOf("out")
+    )
 
 val createShaderNode = fun(id: NodeId): Node {
     return Node(

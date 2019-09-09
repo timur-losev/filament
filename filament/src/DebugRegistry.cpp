@@ -22,7 +22,7 @@
 #   define DEBUG_PROPERTIES_WRITABLE false
 #endif
 
-using namespace math;
+using namespace filament::math;
 using namespace utils;
 
 namespace filament {
@@ -34,7 +34,7 @@ FDebugRegistry::FDebugRegistry() noexcept {
 
 UTILS_NOINLINE
 void *FDebugRegistry::getPropertyAddress(const char *name) noexcept {
-    StaticString key(name, strlen(name));
+    StaticString key = StaticString::make(name, strlen(name));
     auto &propertyMap = mPropertyMap;
     if (propertyMap.find(key) == propertyMap.end()) {
         return nullptr;
@@ -43,8 +43,11 @@ void *FDebugRegistry::getPropertyAddress(const char *name) noexcept {
 }
 
 void FDebugRegistry::registerProperty(utils::StaticString name, void *p, Type type) noexcept {
-    mProperties.push_back({name.c_str(), type});
-    mPropertyMap[name] = p;
+    auto& propertyMap = mPropertyMap;
+    if (propertyMap.find(name) == propertyMap.end()) {
+        mProperties.push_back({ name.c_str(), type });
+        propertyMap[name] = p;
+    }
 }
 
 inline std::pair<DebugRegistry::Property const *, size_t> FDebugRegistry::getProperties() const noexcept {
@@ -105,15 +108,15 @@ bool DebugRegistry::setProperty(const char* name, float v) noexcept {
     return upcast(this)->setProperty(name, v);
 }
 
-bool DebugRegistry::setProperty(const char* name, math::float2 v) noexcept {
+bool DebugRegistry::setProperty(const char* name, float2 v) noexcept {
     return upcast(this)->setProperty(name, v);
 }
 
-bool DebugRegistry::setProperty(const char* name, math::float3 v) noexcept {
+bool DebugRegistry::setProperty(const char* name, float3 v) noexcept {
     return upcast(this)->setProperty(name, v);
 }
 
-bool DebugRegistry::setProperty(const char* name, math::float4 v) noexcept {
+bool DebugRegistry::setProperty(const char* name, float4 v) noexcept {
     return upcast(this)->setProperty(name, v);
 }
 
@@ -130,15 +133,15 @@ bool DebugRegistry::getProperty(const char* name, float* v) const noexcept {
     return upcast(this)->getProperty(name, v);
 }
 
-bool DebugRegistry::getProperty(const char* name, math::float2* v) const noexcept {
+bool DebugRegistry::getProperty(const char* name, float2* v) const noexcept {
     return upcast(this)->getProperty(name, v);
 }
 
-bool DebugRegistry::getProperty(const char* name, math::float3* v) const noexcept {
+bool DebugRegistry::getProperty(const char* name, float3* v) const noexcept {
     return upcast(this)->getProperty(name, v);
 }
 
-bool DebugRegistry::getProperty(const char* name, math::float4* v) const noexcept {
+bool DebugRegistry::getProperty(const char* name, float4* v) const noexcept {
     return upcast(this)->getProperty(name, v);
 }
 

@@ -49,21 +49,25 @@ static void usage(char* name) {
             "       Specify path to output file\n\n"
             "   --platform, -p\n"
             "       Shader family to generate: desktop, mobile or all (default)\n\n"
-            "   --optimize, -O, -x\n"
-            "       Optimize generated shader code for performance\n\n"
             "   --optimize-size, -S\n"
-            "       Optimize generated shader code for performance and size\n\n"
-            "   --preprocessor-only, -E\n"
-            "       Optimize by running only the preprocessor\n\n"
+            "       Optimize generated shader code for size instead of just performance\n\n"
             "   --api, -a\n"
-            "       Specify the target API: opengl (default), vulkan or all\n\n"
+            "       Specify the target API: opengl (default), vulkan, metal, or all\n"
+            "       This flag can be repeated to individually select APIs for inclusion:\n"
+            "           MATC --api opengl --api metal ...\n\n"
             "   --reflect, -r\n"
             "       Reflect the specified metadata as JSON: parameters\n\n"
-            "   --variant-filter=<filter>, -v <filter>\n"
+            "   --variant-filter=<filter>, -V <filter>\n"
             "       Filter out specified comma-separated variants:\n"
             "           directionalLighting, dynamicLighting, shadowReceiver, skinning\n"
             "       This variant filter is merged the filter from the material, if any\n\n"
-            "Internal use only:\n"
+            "   --version, -v\n"
+            "       Print the material version number\n\n"
+            "Internal use and debugging only:\n"
+            "   --optimize-none, -g\n"
+            "       Disable all shader optimizations, for debugging\n\n"
+            "   --preprocessor-only, -E\n"
+            "       Optimize shaders by running only the preprocessor\n\n"
             "   --output-format, -f\n"
             "       Specify output format: blob (default) or header\n\n"
             "   --debug, -d\n"
@@ -86,12 +90,30 @@ static void license() {
     ;
 }
 
+static uint8_t parseVariantFilter(const std::string& arg) {
+    std::stringstream ss(arg);
+    std::string item;
+    uint8_t variantFilter = 0;
+    while (std::getline(ss, item, ',')) {
+        if (item == "directionalLighting") {
+            variantFilter |= filament::Variant::DIRECTIONAL_LIGHTING;
+        } else if (item == "dynamicLighting") {
+            variantFilter |= filament::Variant::DYNAMIC_LIGHTING;
+        } else if (item == "shadowReceiver") {
+            variantFilter |= filament::Variant::SHADOW_RECEIVER;
+        } else if (item == "skinning") {
+            variantFilter |= filament::Variant::SKINNING_OR_MORPHING;
+        }
+    }
+    return variantFilter;
+}
+
 CommandlineConfig::CommandlineConfig(int argc, char** argv) : Config(), mArgc(argc), mArgv(argv) {
     mIsValid = parse();
 }
 
 bool CommandlineConfig::parse() {
-    static constexpr const char* OPTSTR = "hxo:f:dm:a:p:OSEr:v:";
+    static constexpr const char* OPTSTR = "hlxo:f:dm:a:p:OSEr:vV:g";
     static const struct option OPTIONS[] = {
             { "help",                    no_argument, nullptr, 'h' },
             { "license",                 no_argument, nullptr, 'l' },
@@ -99,16 +121,18 @@ bool CommandlineConfig::parse() {
             { "output-format",     required_argument, nullptr, 'f' },
             { "debug",                   no_argument, nullptr, 'd' },
             { "mode",              required_argument, nullptr, 'm' },
-            { "variant-filter",    required_argument, nullptr, 'v' },
+            { "variant-filter",    required_argument, nullptr, 'V' },
             { "platform",          required_argument, nullptr, 'p' },
-            { "optimize",                no_argument, nullptr, 'x' },
-            { "optimize",                no_argument, nullptr, 'O' },
+            { "optimize",                no_argument, nullptr, 'x' }, // for backward compatibility
+            { "optimize",                no_argument, nullptr, 'O' }, // for backward compatibility
             { "optimize-size",           no_argument, nullptr, 'S' },
+            { "optimize-none",           no_argument, nullptr, 'g' },
             { "preprocessor-only",       no_argument, nullptr, 'E' },
             { "api",               required_argument, nullptr, 'a' },
             { "reflect",           required_argument, nullptr, 'r' },
             { "print",                   no_argument, nullptr, 't' },
-            { 0, 0, 0, 0 }  // termination of the option list
+            { "version",                 no_argument, nullptr, 'v' },
+            { nullptr, 0, nullptr, 0 }  // termination of the option list
     };
 
     int opt;
@@ -141,7 +165,7 @@ bool CommandlineConfig::parse() {
                 }
                 break;
             case 'd':
-                mDebug= true;
+                mDebug = true;
                 break;
             case 'm':
                 if (arg == "material") {
@@ -172,35 +196,29 @@ bool CommandlineConfig::parse() {
                 break;
             case 'a':
                 if (arg == "opengl") {
-                    mTargetApi = TargetApi::OPENGL;
+                    mTargetApi |= TargetApi::OPENGL;
                 } else if (arg == "vulkan") {
-                    mTargetApi = TargetApi::VULKAN;
+                    mTargetApi |= TargetApi::VULKAN;
+                } else if (arg == "metal") {
+                    mTargetApi |= TargetApi::METAL;
                 } else if (arg == "all") {
-                    mTargetApi = TargetApi::ALL;
+                    mTargetApi |= TargetApi::ALL;
                 } else {
-                    std::cerr << "Unrecognized target API. Must be 'opengl'|'vulkan'|'all'."
+                    std::cerr << "Unrecognized target API. Must be 'opengl'|'vulkan'|'metal'|'all'."
                             << std::endl;
                     return false;
                 }
                 break;
-            case 'v': {
-                std::stringstream ss(arg);
-                std::string item;
-                uint8_t variantFilter = 0;
-                while (std::getline(ss, item, ',')) {
-                    if (item == "directionalLighting") {
-                        variantFilter |= filament::Variant::DIRECTIONAL_LIGHTING;
-                    } else if (item == "dynamicLighting") {
-                        variantFilter |= filament::Variant::DYNAMIC_LIGHTING;
-                    } else if (item == "shadowReceiver") {
-                        variantFilter |= filament::Variant::SHADOW_RECEIVER;
-                    } else if (item == "skinning") {
-                        variantFilter |= filament::Variant::SKINNING;
-                    }
-                }
-                mVariantFilter = variantFilter;
+            case 'v':
+                // Similar to --help, the --version command does an early exit in order to avoid
+                // subsequent error spew such as "Missing input filename" etc.
+                std::cout << filament::MATERIAL_VERSION << std::endl;
+                exit(0);
                 break;
-            }
+            case 'V':
+                mVariantFilter = parseVariantFilter(arg);
+                break;
+            // These 2 flags are supported for backward compatibility
             case 'O':
             case 'x':
                 mOptimizationLevel = Optimization::PERFORMANCE;
@@ -210,6 +228,9 @@ bool CommandlineConfig::parse() {
                 break;
             case 'E':
                 mOptimizationLevel = Optimization::PREPROCESSOR;
+                break;
+            case 'g':
+                mOptimizationLevel = Optimization::NONE;
                 break;
             case 'r':
                 mReflectionTarget = Metadata::PARAMETERS;
@@ -227,6 +248,7 @@ bool CommandlineConfig::parse() {
     if (mArgc - optind > 0) {
         mInput = new FilesystemInput(mArgv[optind]);
     }
+
     return true;
 }
 

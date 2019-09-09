@@ -14,8 +14,7 @@
 #define SPECULAR_D_GGX_ANISOTROPIC  0
 
 // Cloth NDFs
-#define SPECULAR_D_ASHIKHMIN        0
-#define SPECULAR_D_CHARLIE          1
+#define SPECULAR_D_CHARLIE          0
 
 // Visibility functions
 #define SPECULAR_V_SMITH_GGX        0
@@ -31,11 +30,11 @@
 
 #if defined(TARGET_MOBILE)
 #define BRDF_SPECULAR_D             SPECULAR_D_GGX
-#define BRDF_SPECULAR_V             SPECULAR_V_SMITH_GGX
+#define BRDF_SPECULAR_V             SPECULAR_V_SMITH_GGX_FAST
 #define BRDF_SPECULAR_F             SPECULAR_F_SCHLICK
 #else
 #define BRDF_SPECULAR_D             SPECULAR_D_GGX
-#define BRDF_SPECULAR_V             SPECULAR_V_SMITH_GGX_FAST
+#define BRDF_SPECULAR_V             SPECULAR_V_SMITH_GGX
 #define BRDF_SPECULAR_F             SPECULAR_F_SCHLICK
 #endif
 
@@ -52,7 +51,7 @@
 // Specular BRDF implementations
 //------------------------------------------------------------------------------
 
-float D_GGX(float linearRoughness, float NoH, const vec3 h) {
+float D_GGX(float roughness, float NoH, const vec3 h) {
     // Walter et al. 2007, "Microfacet Models for Refraction through Rough Surfaces"
 
     // In mediump, there are two problems computing 1.0 - NoH^2
@@ -73,40 +72,36 @@ float D_GGX(float linearRoughness, float NoH, const vec3 h) {
     float oneMinusNoHSquared = 1.0 - NoH * NoH;
 #endif
 
-    float a = NoH * linearRoughness;
-    float k = linearRoughness / (oneMinusNoHSquared + a * a);
+    float a = NoH * roughness;
+    float k = roughness / (oneMinusNoHSquared + a * a);
     float d = k * k * (1.0 / PI);
     return saturateMediump(d);
 }
 
 float D_GGX_Anisotropic(float at, float ab, float ToH, float BoH, float NoH) {
     // Burley 2012, "Physically-Based Shading at Disney"
+
+    // The values at and ab are perceptualRoughness^2, a2 is therefore perceptualRoughness^4
+    // The dot product below computes perceptualRoughness^8. We cannot fit in fp16 without clamping
+    // the roughness to too high values so we perform the dot product and the division in fp32
     float a2 = at * ab;
-    vec3 d = vec3(ab * ToH, at * BoH, a2 * NoH);
-    return saturateMediump(a2 * sq(a2 / dot(d, d)) * (1.0 / PI));
+    highp vec3 d = vec3(ab * ToH, at * BoH, a2 * NoH);
+    highp float d2 = dot(d, d);
+    float b2 = a2 / d2;
+    return a2 * b2 * b2 * (1.0 / PI);
 }
 
-float D_Ashikhmin(float linearRoughness, float NoH) {
-    // Ashikhmin 2007, "Distribution-based BRDFs"
-	float a2 = linearRoughness * linearRoughness;
-	float cos2h = NoH * NoH;
-	float sin2h = max(1.0 - cos2h, 0.0078125); // 2^(-14/2), so sin2h^2 > 0 in fp16
-	float sin4h = sin2h * sin2h;
-	float cot2 = -cos2h / (a2 * sin2h);
-	return 1.0 / (PI * (4.0 * a2 + 1.0) * sin4h) * (4.0 * exp(cot2) + sin4h);
-}
-
-float D_Charlie(float linearRoughness, float NoH) {
+float D_Charlie(float roughness, float NoH) {
     // Estevez and Kulla 2017, "Production Friendly Microfacet Sheen BRDF"
-    float invAlpha  = 1.0 / linearRoughness;
+    float invAlpha  = 1.0 / roughness;
     float cos2h = NoH * NoH;
     float sin2h = max(1.0 - cos2h, 0.0078125); // 2^(-14/2), so sin2h^2 > 0 in fp16
     return (2.0 + invAlpha) * pow(sin2h, invAlpha * 0.5) / (2.0 * PI);
 }
 
-float V_SmithGGXCorrelated(float linearRoughness, float NoV, float NoL) {
+float V_SmithGGXCorrelated(float roughness, float NoV, float NoL) {
     // Heitz 2014, "Understanding the Masking-Shadowing Function in Microfacet-Based BRDFs"
-    float a2 = linearRoughness * linearRoughness;
+    float a2 = roughness * roughness;
     // TODO: lambdaV can be pre-computed for all the lights, it should be moved out of this function
     float lambdaV = NoL * sqrt((NoV - a2 * NoV) * NoV + a2);
     float lambdaL = NoV * sqrt((NoL - a2 * NoL) * NoL + a2);
@@ -117,9 +112,9 @@ float V_SmithGGXCorrelated(float linearRoughness, float NoV, float NoL) {
     return saturateMediump(v);
 }
 
-float V_SmithGGXCorrelated_Fast(float linearRoughness, float NoV, float NoL) {
+float V_SmithGGXCorrelated_Fast(float roughness, float NoV, float NoL) {
     // Hammon 2017, "PBR Diffuse Lighting for GGX+Smith Microsurfaces"
-    float v = 0.5 / mix(2.0 * NoL * NoV, NoL + NoV, linearRoughness);
+    float v = 0.5 / mix(2.0 * NoL * NoV, NoL + NoV, roughness);
     return saturateMediump(v);
 }
 
@@ -145,8 +140,12 @@ float V_Neubelt(float NoV, float NoL) {
 
 vec3 F_Schlick(const vec3 f0, float f90, float VoH) {
     // Schlick 1994, "An Inexpensive BRDF Model for Physically-Based Rendering"
-    float f = pow5(1.0 - VoH);
-    return f + f0 * (f90 - f);
+    return f0 + (f90 - f0) * pow5(1.0 - VoH);
+}
+
+vec3 F_Schlick(const vec3 f0, float VoH) {
+    float f = pow(1.0 - VoH, 5.0);
+    return f + f0 * (1.0 - f);
 }
 
 float F_Schlick(float f0, float f90, float VoH) {
@@ -157,24 +156,24 @@ float F_Schlick(float f0, float f90, float VoH) {
 // Specular BRDF dispatch
 //------------------------------------------------------------------------------
 
-float distribution(float linearRoughness, float NoH, const vec3 h) {
+float distribution(float roughness, float NoH, const vec3 h) {
 #if BRDF_SPECULAR_D == SPECULAR_D_GGX
-    return D_GGX(linearRoughness, NoH, h);
+    return D_GGX(roughness, NoH, h);
 #endif
 }
 
-float visibility(float roughness, float linearRoughness, float NoV, float NoL, float LoH) {
+float visibility(float roughness, float NoV, float NoL) {
 #if BRDF_SPECULAR_V == SPECULAR_V_SMITH_GGX
-    return V_SmithGGXCorrelated(linearRoughness, NoV, NoL);
+    return V_SmithGGXCorrelated(roughness, NoV, NoL);
 #elif BRDF_SPECULAR_V == SPECULAR_V_SMITH_GGX_FAST
-    return V_SmithGGXCorrelated_Fast(linearRoughness, NoV, NoL);
+    return V_SmithGGXCorrelated_Fast(roughness, NoV, NoL);
 #endif
 }
 
 vec3 fresnel(const vec3 f0, float LoH) {
 #if BRDF_SPECULAR_F == SPECULAR_F_SCHLICK
 #if defined(TARGET_MOBILE)
-    return F_Schlick(f0, 1.0, LoH);
+    return F_Schlick(f0, LoH); // f90 = 1.0
 #else
     float f90 = saturate(dot(f0, vec3(50.0 * 0.33)));
     return F_Schlick(f0, f90, LoH);
@@ -188,32 +187,30 @@ float distributionAnisotropic(float at, float ab, float ToH, float BoH, float No
 #endif
 }
 
-float visibilityAnisotropic(float linearRoughness, float at, float ab,
+float visibilityAnisotropic(float roughness, float at, float ab,
         float ToV, float BoV, float ToL, float BoL, float NoV, float NoL) {
 #if BRDF_ANISOTROPIC_V == SPECULAR_V_SMITH_GGX
-    return V_SmithGGXCorrelated(linearRoughness, NoV, NoL);
+    return V_SmithGGXCorrelated(roughness, NoV, NoL);
 #elif BRDF_ANISOTROPIC_V == SPECULAR_V_GGX_ANISOTROPIC
     return V_SmithGGXCorrelated_Anisotropic(at, ab, ToV, BoV, ToL, BoL, NoV, NoL);
 #endif
 }
 
-float distributionClearCoat(float linearRoughness, float NoH, const vec3 h) {
+float distributionClearCoat(float roughness, float NoH, const vec3 h) {
 #if BRDF_CLEAR_COAT_D == SPECULAR_D_GGX
-    return D_GGX(linearRoughness, NoH, h);
+    return D_GGX(roughness, NoH, h);
 #endif
 }
 
-float visibilityClearCoat(float roughness, float linearRoughness, float LoH) {
+float visibilityClearCoat(float LoH) {
 #if BRDF_CLEAR_COAT_V == SPECULAR_V_KELEMEN
     return V_Kelemen(LoH);
 #endif
 }
 
-float distributionCloth(float linearRoughness, float NoH) {
-#if BRDF_CLOTH_D == SPECULAR_D_ASHIKHMIN
-    return D_Ashikhmin(linearRoughness, NoH);
-#elif BRDF_CLOTH_D == SPECULAR_D_CHARLIE
-    return D_Charlie(linearRoughness, NoH);
+float distributionCloth(float roughness, float NoH) {
+#if BRDF_CLOTH_D == SPECULAR_D_CHARLIE
+    return D_Charlie(roughness, NoH);
 #endif
 }
 
@@ -231,9 +228,9 @@ float Fd_Lambert() {
     return 1.0 / PI;
 }
 
-float Fd_Burley(float linearRoughness, float NoV, float NoL, float LoH) {
+float Fd_Burley(float roughness, float NoV, float NoL, float LoH) {
     // Burley 2012, "Physically-Based Shading at Disney"
-    float f90 = 0.5 + 2.0 * linearRoughness * LoH * LoH;
+    float f90 = 0.5 + 2.0 * roughness * LoH * LoH;
     float lightScatter = F_Schlick(1.0, f90, NoL);
     float viewScatter  = F_Schlick(1.0, f90, NoV);
     return lightScatter * viewScatter * (1.0 / PI);
@@ -248,33 +245,10 @@ float Fd_Wrap(float NoL, float w) {
 // Diffuse BRDF dispatch
 //------------------------------------------------------------------------------
 
-float diffuse(float linearRoughness, float NoV, float NoL, float LoH) {
+float diffuse(float roughness, float NoV, float NoL, float LoH) {
 #if BRDF_DIFFUSE == DIFFUSE_LAMBERT
     return Fd_Lambert();
 #elif BRDF_DIFFUSE == DIFFUSE_BURLEY
-    return Fd_Burley(linearRoughness, NoV, NoL, LoH);
-#endif
-}
-
-//------------------------------------------------------------------------------
-// Index of refraction (IOR)
-//------------------------------------------------------------------------------
-
-float iorToF0(float transmittedIor, float incidentIor) {
-    return sq((transmittedIor - incidentIor) / (transmittedIor + incidentIor));
-}
-
-float f0ToIor(float f0) {
-    float r = sqrt(f0);
-    return (1.0 + r) / (1.0 - r);
-}
-
-vec3 f0ClearCoatToSurface(const vec3 f0) {
-    // Approximation of iorTof0(f0ToIor(f0), 1.5)
-    // This assumes that the clear coat layer has an IOR of 1.5
-#if defined(TARGET_MOBILE)
-    return saturate(f0 * (f0 * 0.526868 + 0.529324) - 0.0482256);
-#else
-    return saturate(f0 * (f0 * (0.941892 - 0.263008 * f0) + 0.346479) - 0.0285998);
+    return Fd_Burley(roughness, NoV, NoL, LoH);
 #endif
 }

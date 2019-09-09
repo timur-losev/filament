@@ -23,9 +23,6 @@ import com.google.android.filament.*
 import com.google.android.filament.VertexBuffer.AttributeType.*
 import com.google.android.filament.VertexBuffer.VertexAttribute.*
 
-import com.google.android.filament.ibl.IoUtils.readFloat32LE
-import com.google.android.filament.ibl.IoUtils.readUIntLE
-
 import java.io.InputStream
 import java.nio.charset.Charset
 import java.nio.ByteBuffer
@@ -72,12 +69,18 @@ fun loadMesh(assets: AssetManager, name: String,
 private const val FILAMESH_FILE_IDENTIFIER = "FILAMESH"
 private const val MAX_UINT32 = 4294967295
 
+@Suppress("unused")
+private const val HEADER_FLAG_INTERLEAVED = 0x1L
+private const val HEADER_FLAG_SNORM16_UV  = 0x2L
+@Suppress("unused")
+private const val HEADER_FLAG_COMPRESSED  = 0x4L
+
 private class Header {
     var valid = false
     var versionNumber = 0L
     var parts = 0L
     var aabb = Box()
-    var interleaved = 0L
+    var flags = 0L
     var posOffset = 0L
     var positionStride = 0L
     var tangentOffset = 0L
@@ -124,7 +127,7 @@ private fun readHeader(input: InputStream): Header {
     header.aabb = Box(
             readFloat32LE(input), readFloat32LE(input), readFloat32LE(input),
             readFloat32LE(input), readFloat32LE(input), readFloat32LE(input))
-    header.interleaved = readUIntLE(input)
+    header.flags = readUIntLE(input)
     header.posOffset = readUIntLE(input)
     header.positionStride = readUIntLE(input)
     header.tangentOffset = readUIntLE(input)
@@ -144,7 +147,6 @@ private fun readHeader(input: InputStream): Header {
     header.valid = true
     return header
 }
-
 
 private fun readSizedData(channel: ReadableByteChannel, sizeInBytes: Long): ByteBuffer {
     val buffer = ByteBuffer.allocateDirect(sizeInBytes.toInt())
@@ -193,7 +195,15 @@ private fun createIndexBuffer(engine: Engine, header: Header, data: ByteBuffer):
             .apply { setBuffer(engine, data) }
 }
 
+private fun uvNormalized(header: Header) = header.flags and HEADER_FLAG_SNORM16_UV != 0L
+
 private fun createVertexBuffer(engine: Engine, header: Header, data: ByteBuffer): VertexBuffer {
+    val uvType = if (!uvNormalized(header)) {
+        HALF2
+    } else {
+        SHORT2
+    }
+
     val vertexBufferBuilder = VertexBuffer.Builder()
             .bufferCount(1)
             .vertexCount(header.totalVertices.toInt())
@@ -206,11 +216,18 @@ private fun createVertexBuffer(engine: Engine, header: Header, data: ByteBuffer)
             .attribute(POSITION, 0, HALF4, header.posOffset.toInt(), header.positionStride.toInt())
             .attribute(TANGENTS, 0, SHORT4, header.tangentOffset.toInt(), header.tangentStride.toInt())
             .attribute(COLOR, 0, UBYTE4, header.colorOffset.toInt(), header.colorStride.toInt())
-            .attribute(UV0, 0, HALF2, header.uv0Offset.toInt(), header.uv0Stride.toInt())
+            // UV coordinates are stored as normalized 16-bit integers or half-floats depending on
+            // the range they span. When stored as half-float, there is only enough precision for
+            // sub-pixel addressing in textures that are <= 1024x1024
+            .attribute(UV0, 0, uvType, header.uv0Offset.toInt(), header.uv0Stride.toInt())
+            // When UV coordinates are stored as 16-bit integers we must normalize them (we want
+            // values in the range -1..1)
+            .normalized(UV0, uvNormalized(header))
 
     if (header.uv1Offset != MAX_UINT32 && header.uv1Stride != MAX_UINT32) {
         vertexBufferBuilder
-                .attribute(UV1, 0, HALF2, header.uv1Offset.toInt(), header.uv1Stride.toInt())
+                .attribute(UV1, 0, uvType, header.uv1Offset.toInt(), header.uv1Stride.toInt())
+                .normalized(UV1, uvNormalized(header))
     }
 
     return vertexBufferBuilder.build(engine).apply { setBufferAt(engine, 0, data) }
@@ -227,7 +244,7 @@ private fun createRenderable(
 
     val builder = RenderableManager.Builder(header.parts.toInt()).boundingBox(header.aabb)
 
-    (0 until header.parts.toInt()).forEach { i ->
+    repeat(header.parts.toInt()) { i ->
         builder.geometry(i,
                 RenderableManager.PrimitiveType.TRIANGLES,
                 vertexBuffer,

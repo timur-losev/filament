@@ -22,8 +22,8 @@
 #include "details/Camera.h"
 #include "details/Scene.h"
 
-#include "driver/DriverApiForward.h"
-#include "driver/SamplerBuffer.h"
+#include "private/backend/DriverApiForward.h"
+#include "private/backend/SamplerGroup.h"
 
 #include <filament/Viewport.h>
 
@@ -33,27 +33,33 @@
 namespace filament {
 namespace details {
 
+class FView;
+class RenderPass;
+
 class ShadowMap {
 public:
     explicit ShadowMap(FEngine& engine) noexcept;
     ~ShadowMap();
 
-    void terminate(driver::DriverApi& driverApi) noexcept;
+    void terminate(backend::DriverApi& driverApi) noexcept;
 
     // Call once per frame if the light, scene (or visible layers) or camera changes.
     // This computes the light's camera.
-    void update(
-            const FScene::LightSoa& lightData, size_t index, FScene const* scene,
+    void update(const FScene::LightSoa& lightData, size_t index, FScene const* scene,
             details::CameraInfo const& camera, uint8_t visibleLayers) noexcept;
+
+    void render(backend::DriverApi& driver, RenderPass& pass, FView& view) noexcept;
 
     // Do we have visible shadows. Valid after calling update().
     bool hasVisibleShadows() const noexcept { return mHasVisibleShadows; }
 
     // Allocates shadow texture based on user parameters (e.g. dimensions)
-    void prepare(driver::DriverApi& driver, SamplerBuffer& buffer) noexcept;
+    void prepare(backend::DriverApi& driver, backend::SamplerGroup& buffer) noexcept;
 
     // Returns the shadow map's viewport. Valid after prepare().
     Viewport const& getViewport() const noexcept { return mViewport; }
+
+    backend::Handle<backend::HwRenderTarget> getRenderTarget() const { return mShadowMapRenderTarget; }
 
     // Computes the transform to use in the shader to access the shadow map.
     // Valid after calling update().
@@ -62,14 +68,8 @@ public:
     // return the size of a texel in world space (pre-warping)
     float getTexelSizeWorldSpace() const noexcept { return mTexelSizeWs; }
 
-    // Returns the shadow map's depth range. Valid after init().
-    float getSceneRange() const noexcept { return mSceneRange; }
-
     // Returns the light's projection. Valid after calling update().
     FCamera const& getCamera() const noexcept { return *mCamera; }
-
-    // Set-up the render target, call before rendering the shadow map.
-    void beginRenderPass(driver::DriverApi& driverApi) const noexcept;
 
     // use only for debugging
     FCamera const& getDebugCamera() const noexcept { return *mDebugCamera; }
@@ -82,8 +82,6 @@ private:
         math::mat4f worldOrigin;
         float zn = 0;
         float zf = 0;
-        float dzn = 0;
-        float dzf = 0;
         Frustum frustum;
         float getNear() const noexcept { return zn; }
         float getFar() const noexcept { return zf; }
@@ -105,40 +103,59 @@ private:
     using FrustumBoxIntersection = std::array<math::float3, 64>;
 
     void computeShadowCameraDirectional(
-            math::float3 const& direction, FScene const* scene, CameraInfo const& camera,
+            math::float3 const& direction, FScene const* scene,
+            CameraInfo const& camera, FLightManager::ShadowParams const& params,
             uint8_t visibleLayers) noexcept;
 
-    static math::mat4f applyLISPSM(
-            CameraInfo const& camera, float dzn, float dzf, const math::mat4f& LMpMv,
-            Aabb const& wsShadowReceiversVolume, const math::float3 wsViewFrustumCorners[8],
+    static math::mat4f applyLISPSM(math::mat4f& Wp,
+            CameraInfo const& camera, FLightManager::ShadowParams const& params,
+            const math::mat4f& LMpMv,
+            FrustumBoxIntersection const& wsShadowReceiverVolume, size_t vertexCount,
             const math::float3& dir);
 
     static inline void snapLightFrustum(math::float2& s, math::float2& o,
-            uint32_t shadowMapDimension) noexcept;
+            math::mat4f const& Mv, math::float3 worldOrigin, math::float2 shadowMapResolution) noexcept;
 
     static inline void computeFrustumCorners(math::float3* out,
             const math::mat4f& projectionViewInverse) noexcept;
 
-    static inline math::float2 computeNearFar(math::mat4f const& lightView,
+    static inline math::float2 computeNearFar(math::mat4f const& view,
             Aabb const& wsShadowCastersVolume) noexcept;
+
+    static inline math::float2 computeNearFar(math::mat4f const& view,
+            math::float3 const* wsVertices, size_t count) noexcept;
+
+    static inline math::float4 computeBoundingSphere(
+            math::float3 const* vertices, size_t count) noexcept;
+
+    template<typename Casters, typename Receivers>
+    static void visitScene(FScene const& scene, uint32_t visibleLayers,
+            Casters casters, Receivers receivers) noexcept;
+
+    static inline Aabb compute2DBounds(const math::mat4f& lightView,
+            math::float3 const* wsVertices, size_t count) noexcept;
+
+    static inline Aabb compute2DBounds(const math::mat4f& lightView,
+            math::float4 const& sphere) noexcept;
 
     static inline void intersectWithShadowCasters(Aabb& lightFrustum, const math::mat4f& lightView,
             Aabb const& wsShadowCastersVolume) noexcept;
 
-    static inline math::float2 computeWpNearFarOfWarpSpace(math::mat4f const& lightView,
-            math::float3 const wsViewFrustumCorners[8]) noexcept;
-
-    static inline bool intersectSegmentWithPlane(math::float3& p,
-            math::float3 s0, math::float3 s1,
-            math::float3 pn, math::float3 p0) noexcept;
+    static inline math::float2 computeNearFarOfWarpSpace(math::mat4f const& lightView,
+            math::float3 const* wsVertices, size_t count) noexcept;
 
     static inline bool intersectSegmentWithPlanarQuad(math::float3& p,
             math::float3 s0, math::float3 s1,
             math::float3 t0, math::float3 t1,
             math::float3 t2, math::float3 t3) noexcept;
 
-    static size_t intersectFrustums(math::float3* out, size_t vertexCount,
-            math::float3 const* segmentsVertices, math::float3 const* quadsVertices) noexcept;
+    static inline bool intersectSegmentWithTriangle(math::float3& UTILS_RESTRICT p,
+            math::float3 s0, math::float3 s1,
+            math::float3 t0, math::float3 t1, math::float3 t2) noexcept;
+
+    static size_t intersectFrustum(math::float3* out, size_t vertexCount,
+            math::float3 const* segmentsVertices, math::float3 const* quadsVertices,
+            Frustum const& frustum) noexcept;
 
     static size_t intersectFrustumWithBox(
             FrustumBoxIntersection& outVertices,
@@ -148,10 +165,14 @@ private:
 
     static math::mat4f warpFrustum(float n, float f) noexcept;
 
+    static math::mat4f directionalLightFrustum(float n, float f) noexcept;
+
     math::mat4f getTextureCoordsMapping() const noexcept;
 
-    float texelSizeWorldSpace(const math::mat4f& lightSpaceMatrix) const noexcept;
-    float texelSizeWorldSpace(const math::mat4f& lightSpaceMatrix, math::float3 const& str) const noexcept;
+    float texelSizeWorldSpace(const math::mat3f& worldToShadowTexture) const noexcept;
+    float texelSizeWorldSpace(const math::mat4f& W, const math::mat4f& MbMtF) const noexcept;
+
+    void fillWithDebugPattern(backend::DriverApi& driverApi) const noexcept;
 
     static constexpr const Segment sBoxSegments[12] = {
             { 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 },
@@ -170,17 +191,18 @@ private:
     FCamera* mCamera = nullptr;
     FCamera* mDebugCamera = nullptr;
     math::mat4f mLightSpace;
-    float mSceneRange = 0.0f;
     float mTexelSizeWs = 0.0f;
 
     // set-up in prepare()
     Viewport mViewport;
-    Handle<HwTexture> mShadowMapHandle;
-    Handle<HwRenderTarget> mShadowMapRenderTarget;
+    backend::Handle<backend::HwTexture> mShadowMapHandle;
+    backend::Handle<backend::HwRenderTarget> mShadowMapRenderTarget;
 
     // set-up in update()
     uint32_t mShadowMapDimension = 0;
+    math::float3 mShadowMapResolution = {};     // 1 / effective resolution
     bool mHasVisibleShadows = false;
+    backend::PolygonOffset mPolygonOffset{};
 
     // use a member here (instead of stack) because we don't want to pay the
     // initialization of the float3 each time

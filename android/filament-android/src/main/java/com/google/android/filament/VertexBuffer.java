@@ -31,13 +31,22 @@ public class VertexBuffer {
     }
 
     public enum VertexAttribute {
-        POSITION, // XYZ position (float3)
-        TANGENTS, // tangent, bitangent and normal, encoded as a quaternion (4 floats or half floats)
-        COLOR, // vertex color (float4)
-        UV0, // texture coordinates (float2)
-        UV1, // texture coordinates (float2)
+        POSITION,     // XYZ position (float3)
+        TANGENTS,     // tangent, bitangent and normal, encoded as a quaternion (4 floats or half floats)
+        COLOR,        // vertex color (float4)
+        UV0,          // texture coordinates (float2)
+        UV1,          // texture coordinates (float2)
         BONE_INDICES, // indices of 4 bones (uvec4)
-        BONE_WEIGHTS    // weights of the 4 bones (normalized float4)
+        BONE_WEIGHTS, // weights of the 4 bones (normalized float4)
+        UNUSED,       // reserved for future use
+        CUSTOM0,      // custom or MORPH_POSITION_0
+        CUSTOM1,      // custom or MORPH_POSITION_1
+        CUSTOM2,      // custom or MORPH_POSITION_2
+        CUSTOM3,      // custom or MORPH_POSITION_3
+        CUSTOM4,      // custom or MORPH_TANGENTS_0
+        CUSTOM5,      // custom or MORPH_TANGENTS_1
+        CUSTOM6,      // custom or MORPH_TANGENTS_2
+        CUSTOM7       // custom or MORPH_TANGENTS_3
     }
 
     public enum AttributeType {
@@ -67,6 +76,23 @@ public class VertexBuffer {
         HALF2,
         HALF3,
         HALF4,
+    }
+
+    public enum QuatType {
+        HALF4,  // 2 bytes per component as half-floats (8 bytes per quat)
+        SHORT4, // 2 bytes per component as normalized integers (8 bytes per quat)
+        FLOAT4, // 4 bytes per component as floats (16 bytes per quat)
+    }
+
+    public static class QuatTangentContext {
+        public QuatType quatType;   // desired quaternion type (required)
+        public int quatCount;       // number of quaternions (required)
+        public Buffer outBuffer;    // pre-allocated output buffer (required)
+        public int outStride;       // desired stride in bytes (optional)
+        public Buffer normals;      // source normals (required)
+        public int normalsStride;   // normals stride in bytes (optional)
+        public Buffer tangents;     // source tangents (optional)
+        public int tangentsStride;  // tangents stride in bytes (optional)
     }
 
     public static class Builder {
@@ -108,7 +134,13 @@ public class VertexBuffer {
 
         @NonNull
         public Builder normalized(@NonNull VertexAttribute attribute) {
-            nBuilderNormalized(mNativeBuilder, attribute.ordinal());
+            nBuilderNormalized(mNativeBuilder, attribute.ordinal(), true);
+            return this;
+        }
+
+        @NonNull
+        public Builder normalized(@NonNull VertexAttribute attribute, boolean enabled) {
+            nBuilderNormalized(mNativeBuilder, attribute.ordinal(), enabled);
             return this;
         }
 
@@ -166,7 +198,15 @@ public class VertexBuffer {
         }
     }
 
-    long getNativeObject() {
+    public static void populateTangentQuaternions(@NonNull QuatTangentContext context) {
+        nPopulateTangentQuaternions(context.quatType.ordinal(), context.quatCount,
+                context.outBuffer, context.outBuffer.remaining(), context.outStride,
+                context.normals, context.normals.remaining(), context.normalsStride,
+                context.tangents, context.tangents != null ? context.tangents.remaining() : 0,
+                context.tangentsStride);
+    }
+
+    public long getNativeObject() {
         if (mNativeObject == 0) {
             throw new IllegalStateException("Calling method on destroyed VertexBuffer");
         }
@@ -183,11 +223,16 @@ public class VertexBuffer {
     private static native void nBuilderBufferCount(long nativeBuilder, int bufferCount);
     private static native void nBuilderAttribute(long nativeBuilder, int attribute,
             int bufferIndex, int attributeType, int byteOffset, int byteStride);
-    private static native void nBuilderNormalized(long nativeBuilder, int attribute);
+    private static native void nBuilderNormalized(long nativeBuilder, int attribute,
+            boolean normalized);
     private static native long nBuilderBuild(long nativeBuilder, long nativeEngine);
 
     private static native int nGetVertexCount(long nativeVertexBuffer);
     private static native int nSetBufferAt(long nativeVertexBuffer, long nativeEngine,
             int bufferIndex, Buffer buffer, int remaining, int destOffsetInBytes, int count,
             Object handler, Runnable callback);
+
+    private static native void nPopulateTangentQuaternions(int quatType, int quatCount,
+            Buffer outBuffer, int outRemaining, int outStride, Buffer normals, int normalsRemaining,
+            int normalsStride, Buffer tangents, int tangentsRemaining, int tangentsStride);
 }

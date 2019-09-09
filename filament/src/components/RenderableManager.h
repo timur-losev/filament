@@ -19,17 +19,24 @@
 
 #include "upcast.h"
 
-#include "driver/DriverApiForward.h"
-#include "driver/UniformBuffer.h"
-#include "driver/Handle.h"
+#include "UniformBuffer.h"
+
+#include "private/backend/DriverApiForward.h"
+
+#include <backend/Handle.h>
 
 #include <filament/Box.h>
 #include <filament/RenderableManager.h>
+
+#include <private/filament/UibGenerator.h>
 
 #include <utils/Entity.h>
 #include <utils/SingleInstanceComponentManager.h>
 #include <utils/Slice.h>
 #include <utils/Range.h>
+
+// for gtest
+class FilamentTest_Bones_Test;
 
 namespace filament {
 namespace details {
@@ -41,15 +48,17 @@ class FRenderableManager : public RenderableManager {
 public:
     using Instance = RenderableManager::Instance;
 
+    // TODO: consider renaming, this pertains to material variants, not strictly visibility.
     struct Visibility {
         uint8_t priority    : 3;
         bool castShadows    : 1;
         bool receiveShadows : 1;
         bool culling        : 1;
         bool skinning       : 1;
+        bool morphing       : 1;
     };
 
-    FRenderableManager(FEngine& engine) noexcept;
+    explicit FRenderableManager(FEngine& engine) noexcept;
     ~FRenderableManager();
 
     // free-up all resources
@@ -73,7 +82,7 @@ public:
 
     // - instances is a list of Instance (typically the list from a given scene)
     // - list is a list of index in 'instances' (typically the visible ones)
-    void prepare(driver::DriverApi& driver,
+    void prepare(backend::DriverApi& driver,
             RenderableManager::Instance const* instances,
             utils::Range<uint32_t> list) const noexcept;
 
@@ -81,15 +90,6 @@ public:
         mManager.gc(em);
     }
 
-    utils::Slice<const UniformBuffer> getUniformBuffers() const noexcept {
-        return mManager.slice<UNIFORMS>();
-    }
-
-    utils::Slice<const Handle<HwUniformBuffer>> getUniformBufferHandles() const noexcept {
-        return mManager.slice<UNIFORMS_HANDLE>();
-    }
-
-    void updateLocalUBO(Instance instance, const math::mat4f& model) noexcept;
     inline void setAxisAlignedBoundingBox(Instance instance, const Box& aabb) noexcept;
 
     inline void setLayerMask(Instance instance, uint8_t select, uint8_t values) noexcept;
@@ -99,30 +99,31 @@ public:
 
     inline void setCastShadows(Instance instance, bool enable) noexcept;
 
-    inline void setLayerMask(Instance instance, uint8_t enable) noexcept;
+    inline void setLayerMask(Instance instance, uint8_t layerMask) noexcept;
     inline void setReceiveShadows(Instance instance, bool enable) noexcept;
     inline void setCulling(Instance instance, bool enable) noexcept;
-    inline void setUniformHandle(Instance instance, Handle<HwUniformBuffer> const& handle) noexcept;
+    inline void setSkinning(Instance instance, bool enable) noexcept;
+    inline void setMorphing(Instance instance, bool enable) noexcept;
     inline void setPrimitives(Instance instance, utils::Slice<FRenderPrimitive> const& primitives) noexcept;
     inline void setBones(Instance instance, Bone const* transforms, size_t boneCount, size_t offset = 0) noexcept;
     inline void setBones(Instance instance, math::mat4f const* transforms, size_t boneCount, size_t offset = 0) noexcept;
+    inline void setMorphWeights(Instance instance, const math::float4& weights) noexcept;
 
 
     inline bool isShadowCaster(Instance instance) const noexcept;
     inline bool isShadowReceiver(Instance instance) const noexcept;
     inline bool isCullingEnabled(Instance instance) const noexcept;
 
+
     inline Box const& getAABB(Instance instance) const noexcept;
     inline Box const& getAxisAlignedBoundingBox(Instance instance) const noexcept { return getAABB(instance); }
     inline Visibility getVisibility(Instance instance) const noexcept;
     inline uint8_t getLayerMask(Instance instance) const noexcept;
     inline uint8_t getPriority(Instance instance) const noexcept;
+    inline filament::math::float4 getMorphWeights(Instance instance) const noexcept;
 
-    inline UniformBuffer const& getUniformBuffer(Instance instance) const noexcept;
-    inline UniformBuffer& getUniformBuffer(Instance instance) noexcept;
-
-    inline Handle<HwUniformBuffer> getUbh(Instance instance) const noexcept;
-    inline Handle<HwUniformBuffer> getBonesUbh(Instance instance) const noexcept;
+    inline backend::Handle<backend::HwUniformBuffer> getBonesUbh(Instance instance) const noexcept;
+    inline uint32_t getBoneCount(Instance instance) const noexcept;
 
 
     inline size_t getLevelCount(Instance instance) const noexcept { return 1; }
@@ -140,36 +141,37 @@ public:
     inline utils::Slice<FRenderPrimitive> const& getRenderPrimitives(Instance instance, uint8_t level) const noexcept;
     inline utils::Slice<FRenderPrimitive>& getRenderPrimitives(Instance instance, uint8_t level) noexcept;
 
-
 private:
     void destroyComponent(Instance ci) noexcept;
     static void destroyComponentPrimitives(FEngine& engine,
             utils::Slice<FRenderPrimitive>& primitives) noexcept;
 
     struct Bones {
-        filament::Handle<HwUniformBuffer> handle;
+        filament::backend::Handle<backend::HwUniformBuffer> handle;
         UniformBuffer bones;
-        uint8_t count;
+        size_t count;
     };
+
+    friend class ::FilamentTest_Bones_Test;
+
+    static void makeBone(PerRenderableUibBone* out, math::mat4f const& transforms) noexcept;
 
     enum {
         AABB,               // user data
         LAYERS,             // user data
+        MORPH_WEIGHTS,      // user data
         VISIBILITY,         // user data
         PRIMITIVES,         // user data
-        UNIFORMS,           // filament data, UBO data where world-transform is stored
-        UNIFORMS_HANDLE,    // filament data, handle to the driver's UBO
         BONES,              // filament data, UBO storing a pointer to the bones information
     };
 
     using Base = utils::SingleInstanceComponentManager<
-            Box,
-            uint8_t,
-            Visibility,
-            utils::Slice<FRenderPrimitive>,
-            UniformBuffer,
-            filament::Handle<HwUniformBuffer>,
-            std::unique_ptr<Bones>
+            Box,                             // AABB
+            uint8_t,                         // LAYERS
+            filament::math::float4,          // MORPH_WEIGHTS
+            Visibility,                      // VISIBILITY
+            utils::Slice<FRenderPrimitive>,  // PRIMITIVES
+            std::unique_ptr<Bones>           // BONES
     >;
 
     struct Sim : public Base {
@@ -179,25 +181,24 @@ private:
         struct Proxy {
             // all of this gets inlined
             UTILS_ALWAYS_INLINE
-            constexpr Proxy(Base& sim, utils::EntityInstanceBase::Type i) noexcept
+            Proxy(Base& sim, utils::EntityInstanceBase::Type i) noexcept
                     : aabb{ sim, i } { }
 
             union {
                 // this specific usage of union is permitted. All fields are identical
-                Field<AABB>             aabb;
-                Field<LAYERS>           layers;
-                Field<VISIBILITY>       visibility;
-                Field<PRIMITIVES>       primitives;
-                Field<UNIFORMS>         uniforms;
-                Field<UNIFORMS_HANDLE>  uniformsHandle;
-                Field<BONES>            bones;
+                Field<AABB>         aabb;
+                Field<LAYERS>       layers;
+                Field<MORPH_WEIGHTS> morphWeights;
+                Field<VISIBILITY>   visibility;
+                Field<PRIMITIVES>   primitives;
+                Field<BONES>        bones;
             };
         };
 
-        UTILS_ALWAYS_INLINE constexpr Proxy operator[](Instance i) noexcept {
+        UTILS_ALWAYS_INLINE Proxy operator[](Instance i) noexcept {
             return { *this, i };
         }
-        UTILS_ALWAYS_INLINE constexpr const Proxy operator[](Instance i) const noexcept {
+        UTILS_ALWAYS_INLINE const Proxy operator[](Instance i) const noexcept {
             return { const_cast<Sim&>(*this), i };
         }
     };
@@ -256,10 +257,17 @@ void FRenderableManager::setCulling(Instance instance, bool enable) noexcept {
     }
 }
 
-void FRenderableManager::setUniformHandle(Instance instance,
-        Handle<HwUniformBuffer> const& handle) noexcept {
+void FRenderableManager::setSkinning(Instance instance, bool enable) noexcept {
     if (instance) {
-        mManager[instance].uniformsHandle = handle;
+        Visibility& visibility = mManager[instance].visibility;
+        visibility.skinning = enable;
+    }
+}
+
+void FRenderableManager::setMorphing(Instance instance, bool enable) noexcept {
+    if (instance) {
+        Visibility& visibility = mManager[instance].visibility;
+        visibility.morphing = enable;
     }
 }
 
@@ -295,25 +303,22 @@ uint8_t FRenderableManager::getPriority(Instance instance) const noexcept {
     return getVisibility(instance).priority;
 }
 
+filament::math::float4 FRenderableManager::getMorphWeights(Instance instance) const noexcept {
+    return mManager[instance].morphWeights;
+}
+
 Box const& FRenderableManager::getAABB(Instance instance) const noexcept {
     return mManager[instance].aabb;
 }
 
-UniformBuffer const& FRenderableManager::getUniformBuffer(Instance instance) const noexcept {
-    return mManager[instance].uniforms;
-}
-
-UniformBuffer& FRenderableManager::getUniformBuffer(Instance instance) noexcept {
-    return mManager[instance].uniforms;
-}
-
-Handle<HwUniformBuffer> FRenderableManager::getUbh(Instance instance) const noexcept {
-    return mManager[instance].uniformsHandle;
-}
-
-Handle<HwUniformBuffer> FRenderableManager::getBonesUbh(Instance instance) const noexcept {
+backend::Handle<backend::HwUniformBuffer> FRenderableManager::getBonesUbh(Instance instance) const noexcept {
     std::unique_ptr<Bones> const& bones = mManager[instance].bones;
-    return bones ? bones->handle : Handle<HwUniformBuffer>{};
+    return bones ? bones->handle : backend::Handle<backend::HwUniformBuffer>{};
+}
+
+inline uint32_t FRenderableManager::getBoneCount(Instance instance) const noexcept {
+    std::unique_ptr<Bones> const& bones = mManager[instance].bones;
+    return bones ? bones->count : 0;
 }
 
 utils::Slice<FRenderPrimitive> const& FRenderableManager::getRenderPrimitives(

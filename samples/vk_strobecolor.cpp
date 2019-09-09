@@ -25,7 +25,7 @@
 
 using namespace filament;
 
-int main() {
+int main(int argc, char** argv) {
     Config config;
     config.title = "strobecolor";
     config.backend = Engine::Backend::VULKAN;
@@ -47,4 +47,6 @@ int main() {
     });
 
     FilamentApp::get().run(config, setup, cleanup);
+
+    return 0;
 }

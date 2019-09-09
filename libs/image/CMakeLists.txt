@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.10)
 project(image)
 
 set(TARGET image)
@@ -9,15 +9,18 @@ set(PUBLIC_HDR_DIR include)
 # ==================================================================================================
 set(PUBLIC_HDRS
         include/image/ColorTransform.h
-        include/image/LinearImage.h
-        include/image/ImageSampler.h
         include/image/ImageOps.h
+        include/image/ImageSampler.h
+        include/image/KtxBundle.h
+        include/image/KtxUtility.h
+        include/image/LinearImage.h
 )
 
 set(SRCS
-        src/LinearImage.cpp
-        src/ImageSampler.cpp
         src/ImageOps.cpp
+        src/ImageSampler.cpp
+        src/KtxBundle.cpp
+        src/LinearImage.cpp
 )
 
 # ==================================================================================================
@@ -49,9 +52,15 @@ add_library(image_headers INTERFACE)
 target_include_directories(image_headers INTERFACE ${PUBLIC_HDR_DIR})
 
 # ==================================================================================================
+# Installation
+# ==================================================================================================
+install(TARGETS ${TARGET} ARCHIVE DESTINATION lib/${DIST_DIR})
+install(DIRECTORY ${PUBLIC_HDR_DIR}/image DESTINATION include)
+
+# ==================================================================================================
 # Tests
 # ==================================================================================================
-if (NOT ANDROID AND NOT WEBGL)
+if (NOT ANDROID AND NOT WEBGL AND NOT IOS)
     add_executable(test_${TARGET} tests/test_image.cpp)
     target_link_libraries(test_${TARGET} PRIVATE image imageio gtest)
 endif()

@@ -15,7 +15,7 @@
  */
 #include "MaterialInterfaceBlockChunk.h"
 
-#include "filaflat/FilaflatDefs.h"
+#include "filament/MaterialChunkType.h"
 
 using namespace filament;
 
@@ -53,21 +53,6 @@ void MaterialSamplerInterfaceBlockChunk::flatten(Flattener &f) {
         f.writeUint8(static_cast<uint8_t>(sInfo.format));
         f.writeUint8(static_cast<uint8_t>(sInfo.precision));
         f.writeBool(sInfo.multisample);
-    }
-}
-
-MaterialSamplerBindingsChunk::MaterialSamplerBindingsChunk(const SamplerBindingMap& sb) :
-        Chunk(ChunkType::MaterialSamplerBindings), mSamplerBindings(sb) {
-}
-
-void MaterialSamplerBindingsChunk::flatten(Flattener &f) {
-    const auto& bindings = mSamplerBindings.getBindingList();
-    f.writeUint64(bindings.size());
-    for (auto info: bindings) {
-        f.writeUint8(info.blockIndex);
-        f.writeUint8(info.localOffset);
-        f.writeUint8(info.globalOffset);
-        f.writeUint8(info.groupIndex);
     }
 }
 

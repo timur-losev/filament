@@ -17,20 +17,94 @@
 package com.google.android.filament.tungsten.properties
 
 import com.google.android.filament.tungsten.model.Float3
+import com.google.android.filament.tungsten.model.FloatValue
 import com.google.android.filament.tungsten.model.PropertyValue
 import com.google.android.filament.tungsten.model.StringValue
+import com.google.android.filament.tungsten.model.TextureFile
+import com.google.android.filament.tungsten.texture.TextureUtils
 import java.awt.Color
+import java.text.NumberFormat
+import javax.swing.JButton
 import javax.swing.JColorChooser
 import javax.swing.JComboBox
 import javax.swing.JComponent
+import javax.swing.JFileChooser
+import javax.swing.JFormattedTextField
+import javax.swing.JPanel
+import javax.swing.JSlider
 import kotlin.math.roundToInt
 
-sealed class PropertyEditor {
+abstract class PropertyEditor {
 
     abstract val component: JComponent
     var valueChanged: (newValue: PropertyValue) -> Unit = { }
 
     abstract fun setValue(v: PropertyValue)
+}
+
+/**
+ * Set the value of a JSlider without causing any changeListeners to trigger.
+ */
+fun JSlider.quietlySetValue(v: Int) {
+    val changeListeners = this.changeListeners
+    for (changeListener in changeListeners) {
+        this.removeChangeListener(changeListener)
+    }
+    this.value = v
+    for (changeListener in changeListeners) {
+        this.addChangeListener(changeListener)
+    }
+}
+
+internal class FloatSlider(initialValue: FloatValue) : PropertyEditor() {
+
+    private val scaleFactor = 1000
+
+    override val component: JPanel = JPanel()
+    private val slider: JSlider
+    private val field: JFormattedTextField
+
+    private var currentValue: Float = initialValue.v
+
+    override fun setValue(v: PropertyValue) {
+        val value = v as FloatValue
+        currentValue = value.v
+        field.value = currentValue
+        slider.quietlySetValue((currentValue * scaleFactor).roundToInt())
+    }
+
+    init {
+        slider = JSlider(0, scaleFactor, (initialValue.v * scaleFactor).roundToInt())
+        slider.addChangeListener {
+            if (!slider.valueIsAdjusting) {
+                currentValue = slider.value.toFloat() / scaleFactor
+                updateValue()
+            }
+        }
+
+        val format = NumberFormat.getNumberInstance()
+        format.maximumFractionDigits = 5
+        field = JFormattedTextField(format)
+        field.columns = 10
+        field.value = initialValue.v
+
+        field.addActionListener {
+            val newValue = field.value as? Number
+            newValue?.let { v ->
+                currentValue = v.toFloat()
+                updateValue()
+            }
+        }
+
+        component.add(slider)
+        component.add(field)
+    }
+
+    private fun updateValue() {
+        slider.quietlySetValue((currentValue * scaleFactor).roundToInt())
+        field.value = currentValue
+        valueChanged(FloatValue(currentValue))
+    }
 }
 
 internal class ColorChooser(value: Float3) : PropertyEditor() {
@@ -58,7 +132,7 @@ internal class ColorChooser(value: Float3) : PropertyEditor() {
 
 internal class MultipleChoice(value: StringValue, choices: List<String>) : PropertyEditor() {
 
-    override val component: JComboBox<String> = JComboBox<String>(choices.toTypedArray())
+    override val component = JComboBox<String>(choices.toTypedArray())
 
     init {
         component.addActionListener {
@@ -69,5 +143,54 @@ internal class MultipleChoice(value: StringValue, choices: List<String>) : Prope
     override fun setValue(v: PropertyValue) {
         val newValue = v as? StringValue ?: return
         component.selectedItem = newValue.value
+    }
+}
+
+internal class TextureFileChooser(initialValue: TextureFile) : PropertyEditor() {
+
+    private val colorSpaceToLabel = linkedMapOf(
+        TextureUtils.ColorSpaceStrategy.FORCE_SRGB to "sRGB",
+        TextureUtils.ColorSpaceStrategy.FORCE_LINEAR to "Linear",
+        TextureUtils.ColorSpaceStrategy.USE_FILE_PROFILE to "Use embedded file profile"
+    )
+
+    override val component: JPanel = JPanel()
+    private val fileChooser = JFileChooser()
+    private val colorSpaceChooser = JComboBox<String>(colorSpaceToLabel.values.toTypedArray())
+
+    private var textureFile = initialValue
+
+    override fun setValue(v: PropertyValue) {
+        val newValue = v as? TextureFile ?: return
+        textureFile = v
+        colorSpaceChooser.selectedItem = colorSpaceToLabel[newValue.colorSpace]
+    }
+
+    init {
+        val button = JButton("Choose file...")
+
+        colorSpaceChooser.selectedItem = colorSpaceToLabel[initialValue.colorSpace]
+
+        component.add(button)
+        component.add(colorSpaceChooser)
+
+        button.addActionListener {
+            val result = fileChooser.showOpenDialog(component)
+            if (result == JFileChooser.APPROVE_OPTION) {
+                textureFile = textureFile.copy(file = fileChooser.selectedFile)
+                valueChanged(textureFile)
+            }
+        }
+
+        colorSpaceChooser.addActionListener {
+            val newColorSpace = when (colorSpaceChooser.selectedIndex) {
+                0 -> TextureUtils.ColorSpaceStrategy.FORCE_SRGB
+                1 -> TextureUtils.ColorSpaceStrategy.FORCE_LINEAR
+                2 -> TextureUtils.ColorSpaceStrategy.USE_FILE_PROFILE
+                else -> TextureUtils.ColorSpaceStrategy.USE_FILE_PROFILE
+            }
+            textureFile = textureFile.copy(colorSpace = newColorSpace)
+            valueChanged(textureFile)
+        }
     }
 }

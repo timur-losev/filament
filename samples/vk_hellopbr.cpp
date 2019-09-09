@@ -21,23 +21,28 @@
 #include <filament/TransformManager.h>
 #include <filament/View.h>
 
-#include "../samples/app/Config.h"
-#include "../samples/app/FilamentApp.h"
-#include "../samples/app/MeshAssimp.h"
+#include <filameshio/MeshReader.h>
+
+#include "app/Config.h"
+#include "app/FilamentApp.h"
+
+#include "generated/resources/resources.h"
 
 using namespace filament;
-using namespace math;
+using namespace filamesh;
+using namespace filament::math;
+
 using Backend = Engine::Backend;
 
 struct App {
     utils::Entity light;
-    std::map<std::string, MaterialInstance*> materials;
-    MeshAssimp* meshes;
+    Material* material;
+    MaterialInstance* materialInstance;
+    MeshReader::Mesh mesh;
     mat4f transform;
 };
 
-static const char* MODEL_FILE = "assets/models/monkey/monkey.obj";
-static const char* IBL_FOLDER = "envs/office";
+static const char* IBL_FOLDER = "envs/pillars";
 
 int main(int argc, char** argv) {
     Config config;
@@ -51,22 +56,21 @@ int main(int argc, char** argv) {
         auto& rcm = engine->getRenderableManager();
         auto& em = utils::EntityManager::get();
 
-        // Add geometry into the scene.
-        app.meshes = new MeshAssimp(*engine);
-        app.meshes->addFromFile(FilamentApp::getRootPath() + MODEL_FILE, app.materials);
-        auto ti = tcm.getInstance(app.meshes->getRenderables()[0]);
-        app.transform = mat4f{ mat3f(1), float3(0, 0, -4) } * tcm.getWorldTransform(ti);
-        for (auto renderable : app.meshes->getRenderables()) {
-            if (rcm.hasComponent(renderable)) {
-                rcm.setCastShadows(rcm.getInstance(renderable), false);
-                scene->addEntity(renderable);
-            }
-        }
+        // Instantiate material.
+        app.material = Material::Builder()
+            .package(RESOURCES_AIDEFAULTMAT_DATA, RESOURCES_AIDEFAULTMAT_SIZE).build(*engine);
+        auto mi = app.materialInstance = app.material->createInstance();
+        mi->setParameter("baseColor", RgbType::LINEAR, float3{0.8});
+        mi->setParameter("metallic", 1.0f);
+        mi->setParameter("roughness", 0.4f);
+        mi->setParameter("reflectance", 0.5f);
 
-        // Enable the metallic surface property to observe reflections.
-        for (auto& pair : app.materials) {
-            pair.second->setParameter("metallic", 1.0f);
-        }
+        // Add geometry into the scene.
+        app.mesh = MeshReader::loadMeshFromBuffer(engine, RESOURCES_SUZANNE_DATA, nullptr, nullptr, mi);
+        auto ti = tcm.getInstance(app.mesh.renderable);
+        app.transform = mat4f{ mat3f(1), float3(0, 0, -4) } * tcm.getWorldTransform(ti);
+        rcm.setCastShadows(rcm.getInstance(app.mesh.renderable), false);
+        scene->addEntity(app.mesh.renderable);
 
         // Add light sources into the scene.
         app.light = em.create();
@@ -83,17 +87,18 @@ int main(int argc, char** argv) {
     auto cleanup = [&app](Engine* engine, View*, Scene*) {
         Fence::waitAndDestroy(engine->createFence());
         engine->destroy(app.light);
-        for (auto& item : app.materials) {
-            engine->destroy(item.second);
-        }
-        delete app.meshes;
+        engine->destroy(app.materialInstance);
+        engine->destroy(app.mesh.renderable);
+        engine->destroy(app.material);
     };
 
     FilamentApp::get().animate([&app](Engine* engine, View* view, double now) {
         auto& tcm = engine->getTransformManager();
-        auto ti = tcm.getInstance(app.meshes->getRenderables()[0]);
-        tcm.setTransform(ti, app.transform * mat4f::rotate(now, float3{0, 1, 0}));
+        auto ti = tcm.getInstance(app.mesh.renderable);
+        tcm.setTransform(ti, app.transform * mat4f::rotation(now, float3{ 0, 1, 0 }));
     });
 
     FilamentApp::get().run(config, setup, cleanup);
+
+    return 0;
 }

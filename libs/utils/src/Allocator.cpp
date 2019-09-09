@@ -55,7 +55,7 @@ void LinearAllocator::swap(LinearAllocator& rhs) noexcept {
 // FreeList
 // ------------------------------------------------------------------------------------------------
 
-FreeListBase::Node* FreeListBase::init(void* begin, void* end,
+FreeList::Node* FreeList::init(void* begin, void* end,
         size_t elementSize, size_t alignment, size_t extra) noexcept
 {
     void* const p = pointermath::align(begin, alignment, extra);
@@ -71,7 +71,7 @@ FreeListBase::Node* FreeListBase::init(void* begin, void* end,
 
     // next entry
     Node* cur = head;
-    for (size_t i=1 ; i<num ; ++i) {
+    for (size_t i = 1; i < num; ++i) {
         Node* next = pointermath::add(cur, d);
         cur->next = next;
         cur = next;
@@ -93,14 +93,81 @@ FreeList::FreeList(void* begin, void* end,
 
 AtomicFreeList::AtomicFreeList(void* begin, void* end,
         size_t elementSize, size_t alignment, size_t extra) noexcept
-        : mHead(init(begin, end, elementSize, alignment, extra)) {
+{
+#ifdef ANDROID
+    // on some platform (e.g. web) this returns false. we really only care about mobile though.
+    assert(mHead.is_lock_free());
+#endif
+
+    void* const p = pointermath::align(begin, alignment, extra);
+    void* const n = pointermath::align(pointermath::add(p, elementSize), alignment, extra);
+    assert(p >= begin && p < end);
+    assert(n >= begin && n < end && n > p);
+
+    const size_t d = uintptr_t(n) - uintptr_t(p);
+    const size_t num = (uintptr_t(end) - uintptr_t(p)) / d;
+
+    // set first entry
+    Node* head = static_cast<Node*>(p);
+    mStorage = head;
+
+    // next entry
+    Node* cur = head;
+    for (size_t i = 1; i < num; ++i) {
+        Node* next = pointermath::add(cur, d);
+        cur->next = next;
+        cur = next;
+    }
+    assert(cur < end);
+    assert(pointermath::add(cur, d) <= end);
+    cur->next = nullptr;
+
+    mHead.store({ int32_t(head - mStorage), 0 });
+}
+
+// ------------------------------------------------------------------------------------------------
+
+void TrackingPolicy::HighWatermark::onAlloc(
+        void* p, size_t size, size_t alignment, size_t extra) noexcept {
+    if (!mBase) { mBase = p; }
+    mCurrent += uint32_t(size);
+    mHighWaterMark = mCurrent > mHighWaterMark ? mCurrent : mHighWaterMark;
 }
 
 TrackingPolicy::HighWatermark::~HighWatermark() noexcept {
-    size_t wm = mHighWaterMark;
-    size_t wmpct = wm / (mSize / 100);
-    slog.d << mName << " arena: High watermark "
-           << wm / 1024 << " KiB (" << wmpct << "%)" << io::endl;
+    if (mSize > 0) {
+        size_t wm = mHighWaterMark;
+        size_t wmpct = wm / (mSize / 100);
+        if (wmpct > 80) {
+            slog.d << mName << " arena: High watermark "
+                   << wm / 1024 << " KiB (" << wmpct << "%)" << io::endl;
+        }
+    }
 }
+
+void TrackingPolicy::Debug::onAlloc(void* p, size_t size, size_t alignment, size_t extra) noexcept {
+    memset(p, 0xeb, size);
+    HighWatermark::onAlloc(p, size, alignment, extra);
+}
+
+void TrackingPolicy::Debug::onFree(void* p, size_t size) noexcept {
+    memset(p, 0xef, size);
+    HighWatermark::onFree(p, size);
+}
+
+void TrackingPolicy::Debug::onReset() noexcept {
+    if (mBase) {
+        memset(mBase, 0xec, mSize);
+    }
+    HighWatermark::onReset();
+}
+
+void TrackingPolicy::Debug::onRewind(void* addr) noexcept {
+    if (mBase) {
+        memset(addr, 0x55, uintptr_t(mBase) + mSize - uintptr_t(addr));
+    }
+    HighWatermark::onRewind(addr);
+}
+
 
 } // namespace utils

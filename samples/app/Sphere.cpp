@@ -28,13 +28,13 @@
 #include "IcoSphere.h"
 
 using namespace filament;
-using namespace math;
+using namespace filament::math;
 using namespace utils;
 
 
 struct Geometry {
     IcoSphere sphere = IcoSphere{ 2 };
-    std::vector<math::short4> tangents;
+    std::vector<filament::math::short4> tangents;
     filament::VertexBuffer* vertexBuffer = nullptr;
     filament::IndexBuffer* indexBuffer = nullptr;
 };
@@ -57,14 +57,16 @@ Sphere::Sphere(Engine& engine, Material const* material, bool culling)
         auto const& vertices = geometry->sphere.getVertices();
         uint32_t indexCount = (uint32_t)(indices.size() * 3);
 
-        for (auto const& vertice : vertices) {
-            float3 n = vertice;
-            // todo produce correct u,v
-            float3 b = cross(n, float3{ 1, 0, 0 });
-            float3 t = cross(b, n);
-            quatf q = mat3f::packTangentFrame({ t, b, n });
-            geometry->tangents.push_back(packSnorm16(q.xyzw));
-        }
+        geometry->tangents.resize(vertices.size());
+        VertexBuffer::populateTangentQuaternions(VertexBuffer::QuatTangentContext {
+            .quatType = VertexBuffer::SHORT4,
+            .quatCount = vertices.size(),
+            .outBuffer = geometry->tangents.data(),
+            .outStride = sizeof(filament::math::short4),
+            .normals = vertices.data()
+        });
+
+        // todo produce correct u,v
 
         geometry->vertexBuffer = VertexBuffer::Builder()
                 .vertexCount((uint32_t)vertices.size())
@@ -78,7 +80,7 @@ Sphere::Sphere(Engine& engine, Material const* material, bool culling)
                 VertexBuffer::BufferDescriptor(vertices.data(), vertices.size() * sizeof(float3)));
 
         geometry->vertexBuffer->setBufferAt(engine, 1,
-                VertexBuffer::BufferDescriptor(geometry->tangents.data(), geometry->tangents.size() * sizeof(math::short4)));
+                VertexBuffer::BufferDescriptor(geometry->tangents.data(), geometry->tangents.size() * sizeof(filament::math::short4)));
 
 
         geometry->indexBuffer = IndexBuffer::Builder()
@@ -111,7 +113,7 @@ Sphere::~Sphere() {
     em.destroy(mRenderable);
 }
 
-Sphere& Sphere::setPosition(math::float3 const& position) noexcept {
+Sphere& Sphere::setPosition(filament::math::float3 const& position) noexcept {
     auto& tcm = mEngine.getTransformManager();
     auto ci = tcm.getInstance(mRenderable);
     mat4f model = tcm.getTransform(ci);

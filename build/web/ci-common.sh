@@ -5,10 +5,14 @@ unzip -q ninja-mac.zip
 chmod +x ninja
 export PATH="$PWD:$PATH"
 
-curl -L https://github.com/juj/emsdk/archive/0d8576c.zip > emsdk.zip
-unzip emsdk.zip
-mv emsdk-* emsdk
-emsdk/emsdk update
-emsdk/emsdk install sdk-1.38.11-64bit
-emsdk/emsdk activate sdk-1.38.11-64bit
-export EMSDK="$PWD/emsdk"
+# FIXME: kokoro machines have node and npm but currently they are symlinked to non-existent files
+# npm install -g typescript
+
+# Install emscripten.
+curl -L https://github.com/emscripten-core/emsdk/archive/a77638d.zip > emsdk.zip
+unzip emsdk.zip ; mv emsdk-* emsdk ; cd emsdk
+python emsdk install latest
+python emsdk activate latest
+
+export EMSDK="$PWD"
+cd ..

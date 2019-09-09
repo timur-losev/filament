@@ -16,13 +16,7 @@
 
 #include "upcast.h"
 
-#include "driver/Handle.h"
-
-#include <components/RenderableManager.h>
-
 #include <filament/Skybox.h>
-
-#include <filament/driver/DriverEnums.h>
 
 #include <utils/compiler.h>
 #include <utils/Entity.h>
@@ -37,12 +31,13 @@ class FEngine;
 class FTexture;
 class FMaterial;
 class FMaterialInstance;
+class FRenderableManager;
 
 class FSkybox : public Skybox {
 public:
     FSkybox(FEngine& engine, const Builder& builder) noexcept;
 
-    static FMaterial const* createMaterial(FEngine& engine, driver::TextureFormat format);
+    static FMaterial const* createMaterial(FEngine& engine);
 
     void terminate(FEngine& engine) noexcept;
 
@@ -52,6 +47,8 @@ public:
 
     uint8_t getLayerMask() const noexcept { return mLayerMask; }
 
+    float getIntensity() const noexcept { return mIntensity; }
+
 private:
     // we don't own these
     FTexture const* mSkyboxTexture = nullptr;
@@ -60,6 +57,7 @@ private:
     FMaterialInstance* mSkyboxMaterialInstance = nullptr;
     utils::Entity mSkybox;
     FRenderableManager& mRenderableManager;
+    float mIntensity = 0.0f;
     uint8_t mLayerMask = 0x1;
 };
 

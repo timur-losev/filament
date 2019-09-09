@@ -1,14 +1,14 @@
 # Filament
 
 <img alt="Android" src="build/img/android.png" width="20px" height="20px" hspace="2px"/>[![Android Build Status](https://filament-build.storage.googleapis.com/badges/build_status_android.svg)](https://filament-build.storage.googleapis.com/badges/build_link_android.html)
+<img alt="iOS" src="build/img/macos.png" width="20px" height="20px" hspace="2px"/>[![iOS Build Status](https://filament-build.storage.googleapis.com/badges/build_status_ios.svg)](https://filament-build.storage.googleapis.com/badges/build_link_ios.html)
 <img alt="Linux" src="build/img/linux.png" width="20px" height="20px" hspace="2px"/>[![Linux Build Status](https://filament-build.storage.googleapis.com/badges/build_status_linux.svg)](https://filament-build.storage.googleapis.com/badges/build_link_linux.html)
 <img alt="macOS" src="build/img/macos.png" width="20px" height="20px" hspace="2px"/>[![MacOS Build Status](https://filament-build.storage.googleapis.com/badges/build_status_mac.svg)](https://filament-build.storage.googleapis.com/badges/build_link_mac.html)
 <img alt="Windows" src="build/img/windows.png" width="20px" height="20px" hspace="2px"/>[![Windows Build Status](https://filament-build.storage.googleapis.com/badges/build_status_windows.svg)](https://filament-build.storage.googleapis.com/badges/build_link_windows.html)
 <img alt="Web" src="build/img/web.png" width="20px" height="20px" hspace="2px"/>[![Web Build Status](https://filament-build.storage.googleapis.com/badges/build_status_web.svg)](https://filament-build.storage.googleapis.com/badges/build_link_web.html)
 
-Filament is a real-time physically based rendering engine for Android, Linux, macOS and Windows.
-This rendering engine was designed to be as small as possible and as efficient as possible
-on Android.
+Filament is a real-time physically based rendering engine for Android, iOS, Linux, macOS, Windows,
+and WebGL. It is designed to be as small as possible and as efficient as possible on Android.
 
 Filament is currently used in the
 [Sceneform](https://developers.google.com/ar/develop/java/sceneform/) library both at runtime on
@@ -18,19 +18,19 @@ Android devices and as the renderer inside the Android Studio plugin.
 
 [Download Filament releases](https://github.com/google/filament/releases) to access stable builds.
 
-If you prefer to live on the edge, you can download continuous builds directly:
-- [Android](https://filament-build.storage.googleapis.com/badges/build_link_android.html)
-- [Linux](https://filament-build.storage.googleapis.com/badges/build_link_linux.html)
-- [macOS](https://filament-build.storage.googleapis.com/badges/build_link_mac.html)
-- [Windows](https://filament-build.storage.googleapis.com/badges/build_link_windows.html)
+Make sure you always use tools from the same release as the runtime library. This is particularly
+important for `matc` (material compiler).
+
+If you prefer to live on the edge, you can download a continuous build by clicking one of the build
+badges above.
 
 ## Documentation
 
-- [Filament](https://google.github.io/filament/Filament.md.html), an in-depth explanation of
+- [Filament](https://google.github.io/filament/Filament.html), an in-depth explanation of
   real-time physically based rendering, the graphics capabilities and implementation of Filament.
   This document explains the math and reasoning behind most of our decisions. This document is a
   good introduction to PBR for graphics programmers.
-- [Materials](https://google.github.io/filament//Materials.md.html), the full reference
+- [Materials](https://google.github.io/filament/Materials.html), the full reference
   documentation for our material system. This document explains our different material models, how
   to use the material compiler `matc` and how to write custom materials.
 - [Material Properties](https://google.github.io/filament/Material%20Properties.pdf), a reference
@@ -40,30 +40,41 @@ If you prefer to live on the edge, you can download continuous builds directly:
 
 Here are a few sample materials rendered with Filament:
 
-![Brushed copper](docs/images/samples/brushed_copper_2.png)
-![Chess set](docs/images/samples/chess1.png)
-![Environment lighting](docs/images/samples/spheres.png)
-![Material 1](docs/images/samples/material_01.png)
-![Material 2](docs/images/samples/material_02.png)
-![Material 3](docs/images/samples/material_03.png)
-![Material 4](docs/images/samples/material_04.png)
-![Material 6](docs/images/samples/material_06.png)
-![Material 7](docs/images/samples/material_07.png)
-![Material 8](docs/images/samples/material_08.png)
+![Damaged Helmet](docs/images/samples/model_damaged_helmet.jpg)
+![Helmet](docs/images/samples/model_helmet.jpg)
+![Brushed copper](docs/images/samples/brushed_copper_2.jpg)
+![Material 1](docs/images/samples/material_01.jpg)
+![Material 2](docs/images/samples/material_02.jpg)
+![Material 6](docs/images/samples/material_06.jpg)
+![Material 8](docs/images/samples/material_08.jpg)
+
+## Applications
+
+Here are a few screenshots of applications that use Filament in production:
+
+### Google Maps AR Navigation
+
+![Google Maps AR Navigation](docs/images/samples/app_gmm_ar_nav.jpg)
+
+### Google Search 3D/AR Viewer on Android
+
+![Google Search 3D/AR Viewer on Android](docs/images/samples/app_google_3d_viewer.jpg)
 
 ## Features
 
 ### APIs
 
-- Native C++ API for Android, Linux, macOS and Windows
+- Native C++ API for Android, iOS, Linux, macOS and Windows
 - Java/JNI API for Android, Linux, macOS and Windows
-- [Python bindings](https://github.com/artometa/pyfilament)
+- JavaScript API
 
 ### Backends
 
 - OpenGL 4.1+ for Linux, macOS and Windows
-- OpenGL ES 3.0+ for Android
-- Vulkan 1.0 for Android, Linux, macOS (with MoltenVk) and Windows
+- OpenGL ES 3.0+ for Android and iOS
+- Metal for macOS and iOS
+- Vulkan 1.0 for Android, Linux, macOS and iOS (with MoltenVk), and Windows
+- WebGL 2.0 for all platforms
 
 ### Rendering
 
@@ -74,23 +85,24 @@ Here are a few sample materials rendered with Filament:
 - Metallic workflow
 - Clear coat
 - Anisotropic lighting
-- Approximated translucent (subsurface) materials (direct and indirect lighting)
+- Approximated translucent (subsurface) materials
 - Cloth shading
 - Normal mapping & ambient occlusion mapping
 - Image-based lighting
 - Physically-based camera (shutter speed, sensitivity and aperture)
 - Physical light units
 - Point light, spot light and directional light
+- SSAO
 - ACES-like tone-mapping
 - Temporal dithering
-- FXAA or MSAA
-- Dynamic resolution (on Android)
+- FXAA, MSAA and specular anti-aliasing
+- Dynamic resolution (on Android and iOS)
 
 ### Future
 
 Many other features have been either prototyped or planned:
 
-- IES light profiles
+- IES light profiles/cookies
 - Area lights
 - Fog
 - Color grading
@@ -100,45 +112,59 @@ Many other features have been either prototyped or planned:
 
 ## Directory structure
 
-- `filament`:                Filament engine and its supporting libraries and tools
-  - `android`:               Android libraries and projects
-    - `build`:               Custom Gradle tasks for Android builds
-    - `filament-android`:    Filament library (AAR) for Android
-    - `samples`:             Android-specific Filament samples
-  - `art`:                   Source for various artworks (logos, PDF manuals, etc.)
-  - `assets`:                3D assets to use with sample applications
-  - `build`:                 CMake build scripts
-  - `docs`:                  Documentation
-    - `math`:                Mathematica notebooks used to explore BRDFs, equations, etc.
-  - `filament`:              Filament engine
-  - `ide`:                   Configuration files for IDEs (CLion, etc.)
-  - `java`:                  Java bindings for Filament libraries
-  - `libs`:                  Libraries
-    - `bluegl`:                OpenGL bindings for macOS, Linux and Windows
-    - `bluevk`:                Vulkan bindings for macOS, Linux, Windows and Android
-    - `filabridge`:            Library shared by the Filament engine and host tools
-    - `filaflat`:              Serialization/deserialization library used for materials
-    - `filagui`:               Helper library for [Dear ImGui](https://github.com/ocornut/imgui)
-    - `filamat`:               Material generation library
-    - `image`:                 Image filtering and simple transforms
-    - `imageio`:               Image file reading / writing, only intended for internal use
-    - `math`:                  Math library
-    - `utils`:                 Utility library (threads, memory, data structures, etc.)
-  - `samples`:               Sample desktop applications
-  - `shaders`:               Shaders used by `filamat` and `matc`
-  - `third_party`:           External libraries and assets
-    - `environments`:        Environment maps under CC0 license that can be used with `cmgen`
-    - `textures`:            Textures under CC0 license
-  - `tools`:                 Host tools
-    - `cmgen`:               Image-based lighting asset generator
-    - `filamesh`:            Mesh converter
-    - `matc`:                Material compiler
-    - `matinfo`              Displays information about materials compiled with `matc`
-    - `mipgen`               Generates a series of miplevels from a source image.
-    - `normal-blending`:     Tool to blend normal maps
-    - `roughness-prefilter`: Pre-filters a roughness map from a normal map to reduce aliasing 
-    - `skygen`:              Physically-based sky environment texture generator
-    - `specular-color`:      Computes the specular color of conductors based on spectral data
+This repository not only contains the core Filament engine, but also its supporting libraries
+and tools.
+
+- `android`:               Android libraries and projects
+  - `build`:               Custom Gradle tasks for Android builds
+  - `filamat-android`:     Filament material generation library (AAR) for Android
+  - `filament-android`:    Filament library (AAR) for Android
+  - `samples`:             Android-specific Filament samples
+- `art`:                   Source for various artworks (logos, PDF manuals, etc.)
+- `assets`:                3D assets to use with sample applications
+- `build`:                 CMake build scripts
+- `docs`:                  Documentation
+  - `math`:                Mathematica notebooks used to explore BRDFs, equations, etc.
+- `filament`:              Filament rendering engine (minimal dependencies)
+- `ide`:                   Configuration files for IDEs (CLion, etc.)
+- `ios`:                   Sample projects for iOS
+- `java`:                  Java bindings for Filament libraries
+- `libs`:                  Libraries
+  - `bluegl`:              OpenGL bindings for macOS, Linux and Windows
+  - `bluevk`:              Vulkan bindings for macOS, Linux, Windows and Android
+  - `filabridge`:          Library shared by the Filament engine and host tools
+  - `filaflat`:            Serialization/deserialization library used for materials
+  - `filagui`:             Helper library for [Dear ImGui](https://github.com/ocornut/imgui)
+  - `filamat`:             Material generation library
+  - `filameshio`:          Tiny filamesh parsing library (see also `tools/filamesh`)
+  - `geometry`:            Mesh-related utilities
+  - `gltfio`:              Loader and optional pipeline for glTF 2.0
+  - `ibl`:                 IBL generation tools
+  - `image`:               Image filtering and simple transforms
+  - `imageio`:             Image file reading / writing, only intended for internal use
+  - `matdbg`:              DebugServer for inspecting shaders at run-time (debug builds only)
+  - `math`:                Math library
+  - `rays`:                Simple path tracer used for baking ambient occlusion, etc.
+  - `utils`:               Utility library (threads, memory, data structures, etc.)
+- `samples`:               Sample desktop applications
+- `shaders`:               Shaders used by `filamat` and `matc`
+- `third_party`:           External libraries and assets
+  - `environments`:        Environment maps under CC0 license that can be used with `cmgen`
+  - `models`:              Models under permissive licenses
+  - `textures`:            Textures under CC0 license
+- `tools`:                 Host tools
+  - `cmgen`:               Image-based lighting asset generator
+  - `filamesh`:            Mesh converter
+  - `glslminifier`:        Minifies GLSL source code
+  - `matc`:                Material compiler
+  - `matinfo`              Displays information about materials compiled with `matc`
+  - `mipgen`               Generates a series of miplevels from a source image
+  - `normal-blending`:     Tool to blend normal maps
+  - `resgen`               Aggregates binary blobs into embeddable resources
+  - `roughness-prefilter`: Pre-filters a roughness map from a normal map to reduce aliasing
+  - `skygen`:              Physically-based sky environment texture generator
+  - `specular-color`:      Computes the specular color of conductors based on spectral data
+- `web`:                   JavaScript bindings, documentation, and samples
 
 ## Building Filament
 
@@ -146,8 +172,8 @@ Many other features have been either prototyped or planned:
 
 To build Filament, you must first install the following tools:
 
-- CMake 3.4 (or more recent)
-- clang 5.0 (or more recent)
+- CMake 3.10 (or more recent)
+- clang 7.0 (or more recent)
 - [ninja 1.8](https://github.com/ninja-build/ninja/wiki/Pre-built-Ninja-packages) (or more recent)
 
 To build the Java based components of the project you can optionally install (recommended):
@@ -157,11 +183,16 @@ To build the Java based components of the project you can optionally install (re
 Additional dependencies may be required for your operating system. Please refer to the appropriate
 section below.
 
+Building the `rays` library (used for light baking) is optional and requires the following packages:
+
+- embree 3.0+
+- libtbb-dev
+
 To build Filament for Android you must also install the following:
 
-- Android Studio 3.1
+- Android Studio 3.5
 - Android SDK
-- Android NDK
+- Android NDK 19 or higher
 
 ### Environment variables
 
@@ -174,7 +205,7 @@ When building for WebGL, you'll also need to set `EMSDK`. See [WebAssembly](#web
 
 ### IDE
 
-We recommend using CLion to develop for Filament. Simply open the root directory's CMakeList.txt
+We recommend using CLion to develop for Filament. Simply open the root directory's CMakeLists.txt
 in CLion to obtain a usable project.
 
 ### Easy build
@@ -222,28 +253,23 @@ If you use CMake directly instead of the build script, pass `-DENABLE_JAVA=OFF` 
 
 Make sure you've installed the following dependencies:
 
+- `clang-7` or higher
 - `libglu1-mesa-dev`
-- `libc++-dev` (`libcxx-devel` on Fedora)
-- `libc++abi-dev`
+- `libc++-7-dev` (`libcxx-devel` and `libcxx-static` on Fedora) or higher
+- `libc++abi-7-dev` (`libcxxabi-static` on Fedora) or higher
 - `ninja-build`
-
-In addition your distribution might require:
-
 - `libxi-dev`
 
-Then invoke `cmake`:
+After dependencies have been installed, we highly recommend using the [easy build](#easy-build)
+script.
+
+If you'd like to run `cmake` directly rather than using the build script, it can be invoked as
+follows, with some caveats that are explained further down.
 
 ```
 $ mkdir out/cmake-release
 $ cd out/cmake-release
 $ cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../release/filament ../..
-```
-
-If you experience link errors you must ensure that you are using `libc++abi` by passing this
-extra parameter to `cmake`:
-
-```
--DFILAMENT_REQUIRES_CXXABI=true
 ```
 
 Your Linux distribution might default to `gcc` instead of `clang`, if that's the case invoke
@@ -252,8 +278,8 @@ Your Linux distribution might default to `gcc` instead of `clang`, if that's the
 ```
 $ mkdir out/cmake-release
 $ cd out/cmake-release
-# Or use a specific version of clang, for instance /usr/bin/clang-5.0
-$ CC=/usr/bin/clang CXX=/usr/bin/clang++ \
+# Or use a specific version of clang, for instance /usr/bin/clang-7
+$ CC=/usr/bin/clang CXX=/usr/bin/clang++ CXXFLAGS=-stdlib=libc++ \
     cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../release/filament ../..
 ```
 
@@ -262,10 +288,10 @@ solution is to use `update-alternatives` to both change the default compiler, an
 specific version of clang:
 
 ```
+$ update-alternatives --install /usr/bin/clang clang /usr/bin/clang-7 100
+$ update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-7 100
 $ update-alternatives --install /usr/bin/cc cc /usr/bin/clang 100
 $ update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++ 100
-$ update-alternatives --install /usr/bin/clang clang /usr/bin/clang-5.0 100
-$ update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-5.0 100
 ```
 
 Finally, invoke `ninja`:
@@ -302,6 +328,17 @@ $ cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../release/fi
 $ ninja
 ```
 
+### iOS
+
+The easiest way to build Filament for iOS is to use `build.sh` and the
+`-p ios` flag. For instance to build the debug target:
+
+```
+$ ./build.sh -p ios debug
+```
+
+See [ios/samples/README.md](./ios/samples/README.md) for more information.
+
 ### Windows
 
 The following instructions have been tested on a machine running Windows 10. They should take you
@@ -312,14 +349,20 @@ Google employees require additional steps which can be found here [go/filawin](h
 Install the following components:
 
 - [Windows 10 SDK](https://developer.microsoft.com/en-us/windows/downloads/windows-10-sdk)
-- [Visual Studio 2015](https://www.visualstudio.com/downloads)
-- [Clang 6](http://releases.llvm.org/download.html)
+- [Visual Studio 2015 or 2017](https://www.visualstudio.com/downloads)
+- [Clang 7](http://releases.llvm.org/download.html)
 - [Python 3.7](https://www.python.org/ftp/python/3.7.0/python-3.7.0.exe)
-- [Git 2.16.1 or later](https://github.com/git-for-windows/git/releases/download/v2.16.1.windows.4/PortableGit-2.16.1.4-64-bit.7z.exe)
-- [Cmake 3.11 or later](https://cmake.org/files/v3.11/cmake-3.11.0-rc1-win64-x64.msi)
+- [Cmake 3.13 or later](https://github.com/Kitware/CMake/releases/download/v3.13.4/cmake-3.13.4-win64-x64.msi)
 
-Open an VS2015 x64 Native Tools terminal (click the start button, type "x64 native tools" and
-select: "VS2015 x64 Native Tools Command Prompt").
+If you're using Visual Studio 2017, you'll also need to install the [LLVM Compiler
+Toolchain](https://marketplace.visualstudio.com/items?itemName=LLVMExtensions.llvm-toolchain)
+extension.
+
+Open an appropriate Native Tools terminal for the version of Visual Studio you are using:
+- VS 2015: VS2015 x64 Native Tools Command Prompt
+- VS 2017: x64 Native Tools Command Prompt for VS 2017
+
+You can find these by clicking the start button and typing "x64 native tools".
 
 Create a working directory:
 ```
@@ -329,11 +372,20 @@ Create a working directory:
 
 Create the msBuild project:
 ```
+# Visual Studio 2015:
 > cmake -T"LLVM-vs2014" -G "Visual Studio 14 2015 Win64" ../..
+
+# Visual Studio 2017
+> cmake ..\.. -T"LLVM" -G "Visual Studio 15 2017 Win64" ^
+-DCMAKE_CXX_COMPILER:PATH="C:\Program Files\LLVM\bin\clang-cl.exe" ^
+-DCMAKE_C_COMPILER:PATH="C:\Program Files\LLVM\bin\clang-cl.exe" ^
+-DCMAKE_LINKER:PATH="C:\Program Files\LLVM\bin\lld-link.exe"
 ```
 
 Check out the output and make sure Clang for Windows frontend was found. You should see a line
-showing the following ouput.
+showing the following output. Note that for Visual Studio 2017 this line may list Microsoft's
+compiler, but the build will still in fact use Clang and you can proceed.
+
 ```
 Clang:C:/Program Files/LLVM/msbuild-bin/cl.exe
 ```
@@ -345,7 +397,7 @@ You are now ready to build:
 
 Run it:
 ```
-> samples\Release\lightbulb.exe ..\..\assets\models\monkey\monkey.obj
+> samples\Release\material_sandbox.exe ..\..\assets\models\monkey\monkey.obj
 ```
 
 #### Tips
@@ -364,11 +416,11 @@ Alternatively, you can use [Ninja](https://ninja-build.org/) to build for Window
 installation is still necessary.
 
 First, install the dependencies listed under [Windows](#Windows) as well as Ninja. Then open up a
-VS2015 x64 Native Tools terminal as before. Create a build directory inside Filament and run the
+Native Tools terminal as before. Create a build directory inside Filament and run the
 following CMake command:
 
 ```
-cmake .. -G Ninja ^
+> cmake .. -G Ninja ^
 -DCMAKE_CXX_COMPILER:PATH="C:\Program Files\LLVM\bin\clang-cl.exe" ^
 -DCMAKE_C_COMPILER:PATH="C:\Program Files\LLVM\bin\clang-cl.exe" ^
 -DCMAKE_LINKER:PATH="C:\Program Files\LLVM\bin\lld-link.exe" ^
@@ -378,7 +430,7 @@ cmake .. -G Ninja ^
 You should then be able to build by invoking Ninja:
 
 ```
-ninja
+> ninja
 ```
 
 #### Development tips
@@ -393,7 +445,7 @@ ninja
 To confirm Filament was properly built, run the following command from the build directory:
 
 ```
-./samples/material_sandbox --ibl=../../samples/envs/office ../../assets/models/sphere/sphere.obj
+> samples\material_sandbox.exe --ibl=..\..\samples\envs\pillars ..\..\assets\models\sphere\sphere.obj
 ```
 
 ### Android
@@ -411,6 +463,8 @@ Filament can be built for the following architectures:
 Note that the main target is the ARM 64-bit target. Our implementation is optimized first and
 foremost for `arm64-v8a`.
 
+To build Android on Windows machines, see [android/Windows.md](android/Windows.md).
+
 #### Easy Android build
 
 The easiest way to build Filament for Android is to use `build.sh` and the
@@ -423,24 +477,6 @@ $ ./build.sh -p android release
 Run `build.sh -h` for more information.
 
 #### ARM 64-bit target (arm64-v8a)
-
-##### Linux toolchain
-
-```
-$ $SDK/ndk-bundle/build/tools/make_standalone_toolchain.py --arch arm64 --api 24 \
-        --stl libc++ --force \
-        --install-dir toolchains/Linux/aarch64-linux-android-4.9
-```
-
-##### Darwin toolchain
-
-```
-$ $SDK/ndk-bundle/build/tools/make_standalone_toolchain.py --arch arm64 --api 24 \
-        --stl libc++ --force \
-        --install-dir toolchains/Darwin/aarch64-linux-android-4.9
-```
-
-##### Compiling
 
 Then invoke CMake in a build directory of your choice, inside of filament's directory:
 
@@ -469,24 +505,6 @@ binaries should be found in `out/android-release/filament/lib/arm64-v8a`.
 
 #### ARM 32-bit target (armeabi-v7a)
 
-##### Linux toolchain
-
-```
-$ $SDK/ndk-bundle/build/tools/make_standalone_toolchain.py --arch arm --api 24 \
-        --stl libc++ --force \
-        --install-dir toolchains/Linux/arm-linux-androideabi-4.9
-```
-
-##### Darwin toolchain
-
-```
-$ $SDK/ndk-bundle/build/tools/make_standalone_toolchain.py --arch arm --api 24 \
-        --stl libc++ --force \
-        --install-dir toolchains/Darwin/arm-linux-androideabi-4.9
-```
-
-##### Compiling
-
 Then invoke CMake in a build directory of your choice, inside of filament's directory:
 
 ```
@@ -514,24 +532,6 @@ binaries should be found in `out/android-release/filament/lib/armeabi-v7a`.
 
 #### Intel 64-bit target (x86_64)
 
-##### Linux toolchain
-
-```
-$ $SDK/ndk-bundle/build/tools/make_standalone_toolchain.py --arch x86_64 --api 24 \
-        --stl libc++ --force \
-        --install-dir toolchains/Linux/x86_64-linux-android-4.9
-```
-
-##### Darwin toolchain
-
-```
-$ $SDK/ndk-bundle/build/tools/make_standalone_toolchain.py --arch x86_64 --api 24 \
-        --stl libc++ --force \
-        --install-dir toolchains/Darwin/x86_64-linux-android-4.9
-```
-
-##### Compiling
-
 Then invoke CMake in a build directory of your choice, sibling of filament's directory:
 
 ```
@@ -558,24 +558,6 @@ to build the Android Studio projects located in `filament/android`. After instal
 binaries should be found in `out/android-release/filament/lib/x86_64`.
 
 #### Intel 32-bit target (x86)
-
-##### Linux toolchain
-
-```
-$ $SDK/ndk-bundle/build/tools/make_standalone_toolchain.py --arch x86 --api 24 \
-        --stl libc++ --force \
-        --install-dir toolchains/Linux/i686-linux-android-4.9
-```
-
-##### Darwin toolchain
-
-```
-$ $SDK/ndk-bundle/build/tools/make_standalone_toolchain.py --arch x86 --api 24 \
-        --stl libc++ --force \
-        --install-dir toolchains/Darwin/i686-linux-android-4.9
-```
-
-##### Compiling
 
 Then invoke CMake in a build directory of your choice, sibling of filament's directory:
 
@@ -677,30 +659,52 @@ productFlavors {
 
 ### WebAssembly
 
-As an experimental feature, the core Filament library can be cross-compiled to WebAssembly from
-either macOS or Linux. To get started, install the Emscripten SDK as follows:
+The core Filament library can be cross-compiled to WebAssembly from either macOS or Linux. To get
+started, follow the instructions for building Filament on your platform ([macOS](#macos) or
+[linux](#linux)), which will ensure you have the proper dependencies installed.
+
+Next, you need to install the Emscripten SDK. The following instructions show how to install the
+same version that our continuous builds use.
 
 ```
-cd <your chosen home for the emscripten SDK>
-curl -L https://github.com/juj/emsdk/archive/0d8576c.zip > emsdk.zip
+cd <your chosen parent folder for the emscripten SDK>
+curl -L https://github.com/emscripten-core/emsdk/archive/a77638d.zip > emsdk.zip
 unzip emsdk.zip
 mv emsdk-* emsdk
 cd emsdk
 ./emsdk update
-./emsdk install sdk-1.38.11-64bit
-./emsdk activate sdk-1.38.11-64bit
-export EMSDK=$PWD
+./emsdk install sdk-1.38.28-64bit
+./emsdk activate sdk-1.38.28-64bit
 ```
 
-The last line in the above snippet is required so that our build script can find the Emscripten SDK.
-After this you can invoke our standard build script with `-p webgl`.
+After this you can invoke the [easy build](#easy-build) script as follows:
 
-Invoking the [easy build](#easy-build) script with `-p webgl` creates a `public` folder in
-`out/cmake-web-release/samples/web`. This folder can be used as the root of a simple static web
-server. Each sample app has its own handwritten html file, wasm file, and js loader. Additionally
-the public folder contains meshes, textures, and the tiny `filaweb.js` library.
+```
+export EMSDK=<your chosen home for the emscripten SDK>
+./build.sh -p webgl release
+```
 
-## Running the samples
+The EMSDK variable is required so that the build script can find the Emscripten SDK. The build
+creates a `samples` folder that can be used as the root of a simple static web server. Note that you
+cannot open the HTML directly from the filesystem due to CORS. One way to deal with this is to
+use Python to create a quick localhost server:
+
+```
+cd out/cmake-webgl-release/web/samples
+python3 -m http.server     # Python 3
+python -m SimpleHTTPServer # Python 2.7
+```
+
+You can then open http://localhost:8000/suzanne.html in your web browser.
+
+Alternatively, if you have node installed you can use the
+[live-server](https://www.npmjs.com/package/live-server) package, which automatically refreshes the
+web page when it detects a change.
+
+Each sample app has its own handwritten html file. Additionally the server folder contains assets
+such as meshes, textures, and materials.
+
+## Running the native samples
 
 The `samples/` directory contains several examples of how to use Filament with SDL2.
 
@@ -713,11 +717,12 @@ filamesh ./assets/models/monkey/monkey.obj monkey.filamesh
 ```
 
 Most samples accept an IBL that must be generated using the `cmgen` tool (`./tools/filamesh/cmgen`
-in your build directory). These sample apps expect a path to a directory containing the RGBM files
-for the IBL. To generate an IBL simply use this command:
+in your build directory). These sample apps expect a path to a directory containing the '.rgb32f'
+files for the IBL (which are PNGs containing `R11F_G11F_B10F` data). To generate an IBL simply use
+this command:
 
 ```
-cmgen -x ./ibls/ my_ibl.exr 
+cmgen -x ./ibls/ my_ibl.exr
 ```
 
 The source environment map can be a PNG (8 or 16 bit), a PSD (16 or 32 bit), an HDR or an OpenEXR
@@ -730,7 +735,7 @@ pre-filtered environment map (one file per cubemap face and per mip level), the 
 texture for the skybox and a text file containing the spherical harmonics for indirect diffuse
 lighting.
 
-If you prefer a blurred background, run `cmgen` with this flag: `--extract-blur=0.5`. The numerical
+If you prefer a blurred background, run `cmgen` with this flag: `--extract-blur=0.1`. The numerical
 value is the desired roughness between 0 and 1.
 
 ## Rendering with Filament
@@ -738,7 +743,7 @@ value is the desired roughness between 0 and 1.
 ### Native Linux, macOS and Windows
 
 You must create an `Engine`, a `Renderer` and a `SwapChain`. The `SwapChain` is created from a
-native window pointer (an `NSView` on macOS or a `HDC` on Windows for instance):
+native window pointer (an `NSView` on macOS or a `HWND` on Windows for instance):
 
 ```c++
 Engine* engine = Engine::create();
@@ -827,9 +832,18 @@ package `com.google.android.filament.android`. All you need to do is set a rende
 helper and attach your `SurfaceView` or `TextureView` to it. You are still responsible for
 creating the swap chain in the `onNativeWindowChanged()` callback.
 
+### iOS
+
+See `ios/samples` for examples of using Filament on iOS.
+
+Filament on iOS is largely the same as native rendering with C++. A `CAEAGLLayer` or `CAMetalLayer`
+is passed to the `createSwapChain` method. Filament for iOS supports both OpenGL ES and Vulkan via
+MoltenVK.
+
 ## Generating C++ documentation
 
-To generate the documentation you must first install `doxygen`, then run the following commands:
+To generate the documentation you must first install `doxygen` and `graphviz`, then run the 
+following commands:
 
 ```
 $ cd filament/filament
@@ -852,12 +866,17 @@ as possible. The current external dependencies of the runtime library include:
 - STL
 - robin-map (header only library)
 
+When building with Vulkan enabled, we have a few additional small dependencies:
+
+- vkmemalloc
+- smol-v
+
 Host tools (such as `matc` or `cmgen`) can use external dependencies freely.
 
 ## How to make contributions
 
 Please read and follow the steps in [CONTRIBUTING.md](/CONTRIBUTING.md). Make sure you are
-familiar with the [code style](/CODE_STYLE.md). 
+familiar with the [code style](/CODE_STYLE.md).
 
 ## License
 

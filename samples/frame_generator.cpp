@@ -27,7 +27,8 @@
 
 #include <utils/Path.h>
 
-#include <filament/driver/PixelBufferDescriptor.h>
+#include <backend/PixelBufferDescriptor.h>
+
 #include <filament/Color.h>
 #include <filament/Engine.h>
 #include <filament/LightManager.h>
@@ -52,7 +53,7 @@
 #include "app/FilamentApp.h"
 #include "app/MeshAssimp.h"
 
-using namespace math;
+using namespace filament::math;
 using namespace filament;
 using namespace filamat;
 using namespace utils;
@@ -338,11 +339,11 @@ static void setup(Engine* engine, View* view, Scene* scene) {
 template<typename T>
 static LinearImage toLinear(size_t w, size_t h, size_t bpr, const uint8_t* src) {
     LinearImage result(w, h, 3);
-    math::float3* d = reinterpret_cast<math::float3*>(result.getPixelRef(0, 0));
+    filament::math::float3* d = reinterpret_cast<filament::math::float3*>(result.getPixelRef(0, 0));
     for (size_t y = 0; y < h; ++y) {
         T const* p = reinterpret_cast<T const*>(src + y * bpr);
         for (size_t x = 0; x < w; ++x, p += 3) {
-            math::float3 sRGB(p[0], p[1], p[2]);
+            filament::math::float3 sRGB(p[0], p[1], p[2]);
             sRGB /= std::numeric_limits<T>::max();
             *d++ = sRGB;
         }
@@ -374,9 +375,9 @@ static void postRender(Engine*, View* view, Scene*, Renderer* renderer) {
             int currentFrame = 0;
         };
 
-        driver::PixelBufferDescriptor buffer(pixels, vp.width * vp.height * 3,
-                driver::PixelBufferDescriptor::PixelDataFormat::RGB,
-                driver::PixelBufferDescriptor::PixelDataType::UBYTE,
+        backend::PixelBufferDescriptor buffer(pixels, vp.width * vp.height * 3,
+                backend::PixelBufferDescriptor::PixelDataFormat::RGB,
+                backend::PixelBufferDescriptor::PixelDataType::UBYTE,
                 [](void* buffer, size_t size, void* user) {
                     CaptureState* state = static_cast<CaptureState*>(user);
                     const Viewport& v = state->view->getViewport();
@@ -428,7 +429,7 @@ int main(int argc, char* argv[]) {
     for (int i = option_index; i < argc; i++) {
         utils::Path filename = argv[i];
         if (!filename.exists()) {
-            std::cerr << "file " << argv[option_index] << " not found!" << std::endl;
+            std::cerr << "file " << argv[i] << " not found!" << std::endl;
             return 1;
         }
         g_filenames.push_back(filename);

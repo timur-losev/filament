@@ -37,23 +37,24 @@
 
 #include "app/Config.h"
 #include "app/FilamentApp.h"
-#include "app/MeshIO.h"
 
 #include <stb_image.h>
 
 #include <utils/EntityManager.h>
 
 #include <filamat/MaterialBuilder.h>
+#include <filameshio/MeshReader.h>
 
-using namespace math;
+using namespace filament::math;
 using namespace filament;
+using namespace filamesh;
 using namespace filamat;
 using namespace utils;
 
 static std::vector<Path> g_filenames;
 
-static std::map<std::string, MaterialInstance*> g_materialInstances;
-static std::vector<MeshIO::Mesh> g_meshes;
+static MeshReader::MaterialRegistry g_materialInstances;
+static std::vector<MeshReader::Mesh> g_meshes;
 static const Material* g_material;
 static Entity g_light;
 static std::map<std::string, Texture*> g_maps;
@@ -126,9 +127,12 @@ static void cleanup(Engine* engine, View* view, Scene* scene) {
     for (auto map : g_maps) {
         engine->destroy(map.second);
     }
-    for (auto material : g_materialInstances) {
-        engine->destroy(material.second);
+    std::vector<filament::MaterialInstance*> materialList(g_materialInstances.numRegistered());
+    g_materialInstances.getRegisteredMaterials(materialList.data());
+    for (auto material : materialList) {
+        engine->destroy(material);
     }
+    g_materialInstances.unregisterAll();
     engine->destroy(g_material);
     EntityManager& em = EntityManager::get();
     for (auto mesh : g_meshes) {
@@ -155,7 +159,7 @@ Texture* loadMap(Engine* engine, const char* name, bool sRGB = true) {
                     .build(*engine);
             Texture::PixelBufferDescriptor buffer(data, size_t(w * h * 3),
                     Texture::Format::RGB, Texture::Type::UBYTE,
-                    (driver::BufferDescriptor::Callback) &stbi_image_free);
+                    (Texture::PixelBufferDescriptor::Callback) &stbi_image_free);
             map->setImage(*engine, 0, std::move(buffer));
             map->generateMipmaps(*engine);
             g_maps[name] = map;
@@ -179,12 +183,9 @@ static void setup(Engine* engine, View* view, Scene* scene) {
         return;
     }
 
+    MaterialBuilder::init();
     MaterialBuilder builder = MaterialBuilder()
             .name("DefaultMaterial")
-            .set(Property::NORMAL)
-            .set(Property::BASE_COLOR)
-            .set(Property::SHEEN_COLOR)
-            .set(Property::ROUGHNESS)
             .require(VertexAttribute::UV0)
             .parameter(MaterialBuilder::SamplerType::SAMPLER_2D, "normalMap")
             .parameter(MaterialBuilder::SamplerType::SAMPLER_2D, "basecolorMap")
@@ -209,18 +210,19 @@ static void setup(Engine* engine, View* view, Scene* scene) {
 
     g_material = Material::Builder().package(pkg.getData(), pkg.getSize())
             .build(*engine);
-    g_materialInstances["DefaultMaterial"] = g_material->createInstance();
+    const utils::CString defaultMaterialName("DefaultMaterial");
+    g_materialInstances.registerMaterialInstance(defaultMaterialName, g_material->createInstance());
 
     TextureSampler sampler(TextureSampler::MinFilter::LINEAR_MIPMAP_LINEAR,
             TextureSampler::MagFilter::LINEAR, TextureSampler::WrapMode::REPEAT);
     sampler.setAnisotropy(8.0f);
-    g_materialInstances["DefaultMaterial"]->setParameter("normalMap", normal, sampler);
-    g_materialInstances["DefaultMaterial"]->setParameter("basecolorMap", basecolor, sampler);
-    g_materialInstances["DefaultMaterial"]->setParameter("roughnessMap", roughness, sampler);
+    g_materialInstances.getMaterialInstance(defaultMaterialName)->setParameter("normalMap", normal, sampler);
+    g_materialInstances.getMaterialInstance(defaultMaterialName)->setParameter("basecolorMap", basecolor, sampler);
+    g_materialInstances.getMaterialInstance(defaultMaterialName)->setParameter("roughnessMap", roughness, sampler);
 
     auto& tcm = engine->getTransformManager();
     for (const auto& filename : g_filenames) {
-        MeshIO::Mesh mesh  = MeshIO::loadMeshFromFile(engine, filename, g_materialInstances);
+        MeshReader::Mesh mesh  = MeshReader::loadMeshFromFile(engine, filename, g_materialInstances);
         if (mesh.renderable) {
             auto ei = tcm.getInstance(mesh.renderable);
             tcm.setTransform(ei, mat4f{ mat3f(g_config.scale), float3(0.0f, 0.0f, -4.0f) } *
@@ -250,7 +252,7 @@ int main(int argc, char* argv[]) {
     for (int i = option_index; i < argc; i++) {
         utils::Path filename = argv[i];
         if (!filename.exists()) {
-            std::cerr << "file " << argv[option_index] << " not found!" << std::endl;
+            std::cerr << "file " << argv[i] << " not found!" << std::endl;
             return 1;
         }
         g_filenames.push_back(filename);

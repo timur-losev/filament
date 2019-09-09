@@ -30,8 +30,7 @@ public:
     LineDictionary();
     ~LineDictionary() = default;
 
-    void addText(const char* s) noexcept;
-    void addLine(const std::string&& line) noexcept;
+    void addText(const std::string& text) noexcept;
     size_t getLineCount() const;
 
     constexpr size_t getSize() const noexcept {
@@ -39,16 +38,18 @@ public:
     }
 
     constexpr bool isEmpty() const noexcept {
-        return mStrings.size() == 0;
+        return mStrings.empty();
     }
 
     const std::string& getString(size_t index) const noexcept;
     size_t getIndex(const std::string& s) const noexcept;
 
 private:
+    void addLine(const std::string&& line) noexcept;
+
     std::unordered_map<std::string, size_t> mLineIndices;
     std::vector<std::string> mStrings;
-    size_t mStorageSize;
+    size_t mStorageSize = 0;
 };
 
 } // namespace filamat

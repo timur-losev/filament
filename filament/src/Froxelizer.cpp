@@ -35,12 +35,12 @@
 
 #include <stddef.h>
 
-using namespace math;
+using namespace filament::math;
 using namespace utils;
 
 namespace filament {
 
-using namespace driver;
+using namespace backend;
 
 namespace details {
 
@@ -71,7 +71,6 @@ constexpr size_t FROXEL_BUFFER_HEIGHT       = (FROXEL_BUFFER_ENTRY_COUNT_MAX + F
 
 constexpr size_t RECORD_BUFFER_WIDTH_SHIFT  = 5u;
 constexpr size_t RECORD_BUFFER_WIDTH        = 1u << RECORD_BUFFER_WIDTH_SHIFT;
-constexpr size_t RECORD_BUFFER_WIDTH_MASK   = RECORD_BUFFER_WIDTH - 1u;
 
 constexpr size_t RECORD_BUFFER_HEIGHT       = 2048;
 constexpr size_t RECORD_BUFFER_ENTRY_COUNT  = RECORD_BUFFER_WIDTH * RECORD_BUFFER_HEIGHT; // 64K
@@ -135,7 +134,7 @@ void Froxelizer::setOptions(float zLightNear, float zLightFar) noexcept {
 }
 
 
-void Froxelizer::setViewport(Viewport const& viewport) noexcept {
+void Froxelizer::setViewport(filament::Viewport const& viewport) noexcept {
     if (UTILS_UNLIKELY(mViewport != viewport)) {
         mViewport = viewport;
         mDirtyFlags |= VIEWPORT_CHANGED;
@@ -151,8 +150,8 @@ void Froxelizer::setProjection(const mat4f& projection, float near, float far) n
 }
 
 bool Froxelizer::prepare(
-        FEngine::DriverApi& driverApi, ArenaScope& arena, Viewport const& viewport,
-        const math::mat4f& projection, float projectionNear, float projectionFar) noexcept {
+        FEngine::DriverApi& driverApi, ArenaScope& arena, filament::Viewport const& viewport,
+        const mat4f& projection, float projectionNear, float projectionFar) noexcept {
     setViewport(viewport);
     setProjection(projection, projectionNear, projectionFar);
 
@@ -168,12 +167,12 @@ bool Froxelizer::prepare(
 
     // froxel buffer (~32 KiB)
     mFroxelBufferUser = {
-            driverApi.allocatePod<FroxelEntry>(FROXEL_BUFFER_ENTRY_COUNT_MAX, CACHELINE_SIZE),
+            driverApi.allocatePod<FroxelEntry>(FROXEL_BUFFER_ENTRY_COUNT_MAX),
             FROXEL_BUFFER_ENTRY_COUNT_MAX };
 
     // record buffer (~64 KiB)
     mRecordBufferUser = {
-            driverApi.allocatePod<RecordBufferType>(RECORD_BUFFER_ENTRY_COUNT, CACHELINE_SIZE),
+            driverApi.allocatePod<RecordBufferType>(RECORD_BUFFER_ENTRY_COUNT),
             RECORD_BUFFER_ENTRY_COUNT };
 
     /*
@@ -196,18 +195,15 @@ bool Froxelizer::prepare(
     assert(mLightRecords.begin());
     assert(mFroxelShardedData.begin());
 
-#ifndef NDEBUG
-    memset(mFroxelBufferUser.data(),    0x55, mFroxelBufferUser.sizeInBytes());
-    memset(mRecordBufferUser.data(),    0xEB, mRecordBufferUser.sizeInBytes());
-    memset(mFroxelShardedData.data(),   0xFD, mFroxelShardedData.sizeInBytes());
-#endif
+    // initialize buffers that need to be
+    memset(mLightRecords.data(), 0, mLightRecords.sizeInBytes());
 
     return uniformsNeedUpdating;
 }
 
 void Froxelizer::computeFroxelLayout(
         uint2* dim, uint16_t* countX, uint16_t* countY, uint16_t* countZ,
-        Viewport const& viewport) noexcept {
+        filament::Viewport const& viewport) noexcept {
 
     if (SUPPORTS_NON_SQUARE_FROXELS == false) {
         // calculate froxel dimension from FROXEL_BUFFER_ENTRY_COUNT_MAX and viewport
@@ -251,7 +247,7 @@ UTILS_NOINLINE
 bool Froxelizer::update() noexcept {
     bool uniformsNeedUpdating = false;
     if (UTILS_UNLIKELY(mDirtyFlags & VIEWPORT_CHANGED)) {
-        Viewport const& viewport = mViewport;
+        filament::Viewport const& viewport = mViewport;
 
         uint2 froxelDimension;
         uint16_t froxelCountX, froxelCountY, froxelCountZ;
@@ -523,7 +519,7 @@ std::pair<size_t, size_t> Froxelizer::clipToIndices(float2 const& clip) const no
 }
 
 
-void Froxelizer::commit(driver::DriverApi& driverApi) {
+void Froxelizer::commit(backend::DriverApi& driverApi) {
     // send data to GPU
     mFroxelBuffer.commit(driverApi, mFroxelBufferUser);
     mRecordsBuffer.commit(driverApi, mRecordBufferUser);
@@ -749,12 +745,7 @@ void Froxelizer::froxelizeAssignRecordsCompress() noexcept {
         } while(records[i].lights == b.lights);
     }
 out_of_memory:
-
-    // froxel buffer is always fully invalidated
-    mFroxelBuffer.invalidate();
-
-    // needed record buffer size may change at each frame
-    mRecordsBuffer.invalidate(0, (offset + RECORD_BUFFER_WIDTH_MASK) >> RECORD_BUFFER_WIDTH_SHIFT);
+    ;
 }
 
 static inline float2 project(mat4f const& p, float3 const& v) noexcept {

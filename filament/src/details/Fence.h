@@ -19,16 +19,18 @@
 
 #include "upcast.h"
 
-#include "driver/DriverBase.h"
-
 #include <filament/Fence.h>
 
-#include <utils/compiler.h>
+#include <backend/Handle.h>
 
-#include <condition_variable>
-#include <mutex>
+#include <utils/compiler.h>
+#include <utils/Condition.h>
+#include <utils/Mutex.h>
 
 namespace filament {
+
+struct HwFence;
+
 namespace details {
 
 class FEngine;
@@ -46,11 +48,11 @@ public:
 private:
     // We assume we don't have a lot of contention of fence and have all of them
     // share a single lock/condition
-    static std::mutex sLock;
-    static std::condition_variable sCondition;
+    static utils::Mutex sLock;
+    static utils::Condition sCondition;
 
     struct FenceSignal {
-        FenceSignal(Type type) noexcept : mType(type) { }
+        explicit FenceSignal(Type type) noexcept : mType(type) { }
         enum State : uint8_t { UNSIGNALED, SIGNALED, DESTROYED };
         // we store mType here instead of in FFence, because it allows sizeof(FFence) to be
         // much smaller (since it needs to be multiple of 8 on 64 bits architectures)
@@ -61,7 +63,7 @@ private:
     };
 
     FEngine& mEngine;
-    Handle<HwFence> mFenceHandle;
+    backend::Handle<backend::HwFence> mFenceHandle;
     // TODO: use custom allocator for these small objects
     std::shared_ptr<FenceSignal> mFenceSignal;
 };

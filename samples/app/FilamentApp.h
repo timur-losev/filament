@@ -57,12 +57,15 @@ public:
             filament::Scene*, filament::Renderer*)>;
     using ImGuiCallback = std::function<void(filament::Engine*, filament::View*)>;
     using AnimCallback = std::function<void(filament::Engine*, filament::View*, double now)>;
+    using DropCallback = std::function<void(std::string)>;
 
     static FilamentApp& get();
 
     ~FilamentApp();
 
     void animate(AnimCallback animation) { mAnimation = animation; }
+
+    void setDropHandler(DropCallback handler) { mDropHandler = handler; }
 
     void run(const Config& config, SetupCallback setup, CleanupCallback cleanup,
             ImGuiCallback imgui = ImGuiCallback(), PreRenderCallback preRender = PreRenderCallback(),
@@ -72,8 +75,16 @@ public:
     filament::Material const* getDefaultMaterial() const noexcept { return mDefaultMaterial; }
     filament::Material const* getTransparentMaterial() const noexcept { return mTransparentMaterial; }
     IBL* getIBL() const noexcept { return mIBL.get(); }
+    filament::View* getGuiView() const noexcept;
 
     void close() { mClosed = true; }
+
+    void setSidebarWidth(int width) { mSidebarWidth = width; }
+    void setWindowTitle(const char* title) { mWindowTitle = title; }
+
+    void addOffscreenView(filament::View* view) { mOffscreenViews.push_back(view); }
+
+    size_t getSkippedFrameCount() const { return mSkippedFrames; }
 
     FilamentApp(const FilamentApp& rhs) = delete;
     FilamentApp(FilamentApp&& rhs) = delete;
@@ -119,7 +130,7 @@ private:
         filament::Viewport mViewport;
         filament::View* view = nullptr;
         CameraManipulator* mCameraManipulator = nullptr;
-        math::double2 mLastMousePosition;
+        filament::math::double2 mLastMousePosition;
         Mode mMode = Mode::NONE;
         std::string mName;
     };
@@ -157,6 +168,7 @@ private:
         SDL_Window* mWindow = nullptr;
         FilamentApp* mFilamentApp = nullptr;
         filament::Renderer* mRenderer = nullptr;
+        filament::Engine::Backend mBackend;
 
         CameraManipulator mMainCameraMan;
         CameraManipulator mOrthoCameraMan;
@@ -200,6 +212,11 @@ private:
     filament::MaterialInstance* mDepthMI = nullptr;
     std::unique_ptr<filagui::ImGuiHelper> mImGuiHelper;
     AnimCallback mAnimation;
+    DropCallback mDropHandler;
+    int mSidebarWidth = 0;
+    size_t mSkippedFrames = 0;
+    std::string mWindowTitle;
+    std::vector<filament::View*> mOffscreenViews;
 };
 
 #endif // TNT_FILAMENT_SAMPLE_FILAMENTAPP_H

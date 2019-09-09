@@ -21,19 +21,88 @@
 #include <limits>
 #include <type_traits>
 
-#ifdef __cplusplus
-#   define LIKELY( exp )    (__builtin_expect( !!(exp), true ))
-#   define UNLIKELY( exp )  (__builtin_expect( !!(exp), false ))
-#else
-#   define LIKELY( exp )    (__builtin_expect( !!(exp), 1 ))
-#   define UNLIKELY( exp )  (__builtin_expect( !!(exp), 0 ))
-#endif
+#include <math/compiler.h>
 
-#ifndef MAKE_CONSTEXPR
-#define MAKE_CONSTEXPR(e) __builtin_constant_p(e) ? (e) : (e)
-#endif
-
+namespace filament {
 namespace math {
+
+template<unsigned S, unsigned E, unsigned M>
+class fp {
+    static_assert(S + E + M <= 16, "we only support 16-bits max custom floats");
+
+    using TYPE = uint16_t; // this should be dynamic
+
+    static constexpr unsigned S_SHIFT = E + M;
+    static constexpr unsigned E_SHIFT = M;
+    static constexpr unsigned M_SHIFT = 0;
+    static constexpr unsigned S_MASK = ((1u << S) - 1u) << S_SHIFT;
+    static constexpr unsigned E_MASK = ((1u << E) - 1u) << E_SHIFT;
+    static constexpr unsigned M_MASK = ((1u << M) - 1u) << M_SHIFT;
+
+    struct fp32 {
+        explicit constexpr fp32(float f) noexcept : fp(f) { } // NOLINT
+        explicit constexpr fp32(uint32_t b) noexcept : bits(b) { } // NOLINT
+        constexpr void setS(unsigned int s) noexcept {
+            bits = uint32_t((bits & 0x7FFFFFFFu) | (s << 31u));
+        }
+        constexpr unsigned int getS() const noexcept { return bits >> 31u; }
+        constexpr unsigned int getE() const noexcept { return (bits >> 23u) & 0xFFu; }
+        constexpr unsigned int getM() const noexcept { return bits & 0x7FFFFFu; }
+        union {
+            uint32_t bits;
+            float fp;
+        };
+    };
+
+public:
+    static constexpr fp fromf(float f) noexcept {
+        fp out;
+        if (S == 0 && f < 0.0f) {
+            return out;
+        }
+
+        fp32 in(f);
+        unsigned int sign = in.getS();
+        in.setS(0);
+        if (MATH_UNLIKELY(in.getE() == 0xFF)) { // inf or nan
+            out.setE((1u << E) - 1u);
+            out.setM(in.getM() ? (1u << (M - 1u)) : 0);
+        } else {
+            constexpr fp32 infinity(((1u << E) - 1u) << 23u);       // fp infinity in fp32 position
+            constexpr fp32 magic(((1u << (E - 1u)) - 1u) << 23u);   // exponent offset
+            in.bits &= ~((1u << (22 - M)) - 1u);                    // erase extra mantissa bits
+            in.bits += 1u << (22 - M);                              // rounding
+            in.fp *= magic.fp;                      // add exponent offset
+            in.bits = in.bits < infinity.bits ? in.bits : infinity.bits;
+            out.bits = uint16_t(in.bits >> (23 - M));
+        }
+        out.setS(sign);
+        return out;
+    }
+
+    static constexpr float tof(fp in) noexcept {
+        constexpr fp32 magic ((0xFE - ((1u << (E - 1u)) - 1u)) << 23u);
+        constexpr fp32 infnan((0x80 + ((1u << (E - 1u)) - 1u)) << 23u);
+        fp32 out((in.bits & ((1u << (E + M)) - 1u)) << (23u - M));
+        out.fp *= magic.fp;
+        if (out.fp >= infnan.fp) {
+            out.bits |= 0xFFu << 23u;
+        }
+        out.bits |= (in.bits & S_MASK) << (31u - S_SHIFT);
+        return out.fp;
+    }
+
+    TYPE bits{};
+    static constexpr size_t getBitCount() noexcept { return S + E + M; }
+    constexpr fp() noexcept = default;
+    explicit constexpr fp(TYPE bits) noexcept : bits(bits) { }
+    constexpr void setS(unsigned int s) noexcept { bits = TYPE((bits & ~S_MASK) | (s << S_SHIFT)); }
+    constexpr void setE(unsigned int s) noexcept { bits = TYPE((bits & ~E_MASK) | (s << E_SHIFT)); }
+    constexpr void setM(unsigned int s) noexcept { bits = TYPE((bits & ~M_MASK) | (s << M_SHIFT)); }
+    constexpr unsigned int getS() const noexcept { return (bits & S_MASK) >> S_SHIFT; }
+    constexpr unsigned int getE() const noexcept { return (bits & E_MASK) >> E_SHIFT; }
+    constexpr unsigned int getM() const noexcept { return (bits & M_MASK) >> M_SHIFT; }
+};
 
 /*
  * half-float
@@ -45,7 +114,7 @@ namespace math {
  *
  * minimum (denormal) value: 2^-24 = 5.96e-8
  * minimum (normal) value:   2^-14 = 6.10e-5
- * maximum value:            2-2^-10 = 65504
+ * maximum value:            (2 - 2^-10) * 2^15 = 65504
  *
  * Integers between 0 and 2048 can be represented exactly
  */
@@ -65,37 +134,12 @@ inline constexpr half makeHalf(uint16_t bits) noexcept {
 #else
 
 class half {
-    struct fp16 {
-        uint16_t bits;
-        fp16() noexcept = default;
-        explicit constexpr fp16(uint16_t bits) noexcept : bits(bits) { }
-        constexpr void setS(unsigned int s) noexcept { bits = uint16_t((bits & 0x7FFF) | (s<<15)); }
-        constexpr void setE(unsigned int s) noexcept { bits = uint16_t((bits & 0xE3FF) | (s<<10)); }
-        constexpr void setM(unsigned int s) noexcept { bits = uint16_t((bits & 0xFC00) | (s<< 0)); }
-        constexpr unsigned int getS() const noexcept { return  bits >> 15u; }
-        constexpr unsigned int getE() const noexcept { return (bits >> 10u) & 0x1Fu; }
-        constexpr unsigned int getM() const noexcept { return  bits         & 0x3FFu; }
-    };
-    struct fp32 {
-        union {
-            uint32_t bits = 0;
-            float fp;
-        };
-        constexpr fp32() noexcept {}
-        explicit constexpr fp32(float f) noexcept : fp(f) { }
-        explicit constexpr fp32(uint32_t b) noexcept : bits(b) { }
-        constexpr void setS(unsigned int s) noexcept { bits = uint32_t((bits & 0x7FFFFFFF) | (s<<31)); }
-        constexpr void setE(unsigned int s) noexcept { bits = uint32_t((bits & 0x807FFFFF) | (s<<23)); }
-        constexpr void setM(unsigned int s) noexcept { bits = uint32_t((bits & 0xFF800000) | (s<< 0)); }
-        constexpr unsigned int getS() const noexcept { return  bits >> 31u; }
-        constexpr unsigned int getE() const noexcept { return (bits >> 23u) & 0xFFu; }
-        constexpr unsigned int getM() const noexcept { return  bits         & 0x7FFFFFu; }
-    };
+    using fp16 = fp<1, 5, 10>;
 
 public:
     half() = default;
-    constexpr half(float v) noexcept : mBits(ftoh(v)) { }
-    constexpr operator float() const noexcept { return htof(mBits); }
+    constexpr half(float v) noexcept : mBits(fp16::fromf(v)) { } // NOLINT
+    constexpr operator float() const noexcept { return fp16::tof(mBits); } // NOLINT
 
 private:
     // these are friends, not members (and they're not "private")
@@ -105,65 +149,33 @@ private:
     enum Binary { binary };
     explicit constexpr half(Binary, uint16_t bits) noexcept : mBits(bits) { }
 
-    static inline constexpr fp16 ftoh(float v) noexcept;
-    static inline constexpr float htof(fp16 v) noexcept;
     fp16 mBits;
 };
 
 constexpr inline half makeHalf(uint16_t bits) noexcept {
-    return half(math::half::binary, bits);
-}
-
-constexpr half::fp16 half::ftoh(float f) noexcept {
-    constexpr fp32 infinity(31u << 23);
-    constexpr fp32 magic(15u << 23);
-    fp32 in(f);
-    fp16 out(0);
-    unsigned int sign = in.getS();
-
-    in.setS(0);
-    if (UNLIKELY(in.getE() == 0xFF)) { // inf or nan
-        out.setE(0x1F);
-        out.setM(in.getM() ? 0x200 : 0);
-    } else {
-        in.bits &= ~0xFFF;
-        in.fp *= magic.fp;
-        in.bits += 0x1000;
-        in.bits = in.bits < infinity.bits ? in.bits : infinity.bits;
-        out.bits = uint16_t(in.bits >> 13);
-    }
-    out.setS(sign);
-    return out;
-}
-
-constexpr float half::htof(half::fp16 in) noexcept {
-    constexpr fp32 magic((0xFEu - 0xFu) << 23);
-    constexpr fp32 infnan(0x8Fu << 23);
-    fp32 out((in.bits & 0x7FFFu) << 13);
-    out.fp *= magic.fp;
-    if (out.fp >= infnan.fp) {
-        out.bits |= 0xFFu << 23;
-    }
-    out.bits |= (in.bits & 0x8000u) << 16;
-    return out.fp;
+    return half(half::binary, bits);
 }
 
 #endif // __ARM_NEON
 
-inline constexpr math::half operator"" _h(long double v) {
-    return math::half(v);
+inline constexpr half operator "" _h(long double v) {
+    return half( static_cast<float>(v) );
 }
 
 } // namespace math
+} // namespace filament
 
 namespace std {
 
-template<> struct is_floating_point<math::half> : public std::true_type {};
+template<> struct is_floating_point<filament::math::half> : public std::true_type {};
+
+// note: this shouldn't be needed (is_floating_point<> is enough) but some version of msvc need it
+template<> struct is_arithmetic<filament::math::half> : public std::true_type {};
 
 template<>
-class numeric_limits<math::half> {
+class numeric_limits<filament::math::half> {
 public:
-    typedef math::half type;
+    typedef filament::math::half type;
 
     static constexpr const bool is_specialized = true;
     static constexpr const bool is_signed = true;
@@ -190,21 +202,17 @@ public:
     static constexpr const int max_exponent = 16;
     static constexpr const int max_exponent10 = 4;
 
-    inline static constexpr type round_error() noexcept { return math::makeHalf(0x3800); }
-    inline static constexpr type min() noexcept { return math::makeHalf(0x0400); }
-    inline static constexpr type max() noexcept { return math::makeHalf(0x7bff); }
-    inline static constexpr type lowest() noexcept { return math::makeHalf(0xfbff); }
-    inline static constexpr type epsilon() noexcept { return math::makeHalf(0x1400); }
-    inline static constexpr type infinity() noexcept { return math::makeHalf(0x7c00); }
-    inline static constexpr type quiet_NaN() noexcept { return math::makeHalf(0x7fff); }
-    inline static constexpr type denorm_min() noexcept { return math::makeHalf(0x0001); }
-    inline static constexpr type signaling_NaN() noexcept { return math::makeHalf(0x7dff); }
+    inline static constexpr type round_error() noexcept { return filament::math::makeHalf(0x3800); }
+    inline static constexpr type min() noexcept { return filament::math::makeHalf(0x0400); }
+    inline static constexpr type max() noexcept { return filament::math::makeHalf(0x7bff); }
+    inline static constexpr type lowest() noexcept { return filament::math::makeHalf(0xfbff); }
+    inline static constexpr type epsilon() noexcept { return filament::math::makeHalf(0x1400); }
+    inline static constexpr type infinity() noexcept { return filament::math::makeHalf(0x7c00); }
+    inline static constexpr type quiet_NaN() noexcept { return filament::math::makeHalf(0x7fff); }
+    inline static constexpr type denorm_min() noexcept { return filament::math::makeHalf(0x0001); }
+    inline static constexpr type signaling_NaN() noexcept { return filament::math::makeHalf(0x7dff); }
 };
 
 } // namespace std
-
-#undef LIKELY
-#undef UNLIKELY
-#undef MAKE_CONSTEXPR
 
 #endif // TNT_MATH_HALF_H

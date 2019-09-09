@@ -1,17 +1,58 @@
 #!/bin/bash
 
 # version of clang we want to use
-CLANG_VERSION=5.0
+CLANG_VERSION=7
+GITHUB_CLANG_VERSION=8
 # version of libcxx and libcxxabi we want to use
-CXX_VERSION=5.0.2
+CXX_VERSION=7.0.0
+# version of CMake to use instead of the default one
+CMAKE_VERSION=3.13.4
+# version of ninja to use
+NINJA_VERSION=1.8.2
+
+# Install ninja
+wget -q https://github.com/ninja-build/ninja/releases/download/v$NINJA_VERSION/ninja-linux.zip
+unzip -q ninja-linux.zip
+export PATH="$PWD:$PATH"
+
+# Install CMake
+mkdir -p cmake
+cd cmake
+
+sudo wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-Linux-x86_64.sh
+sudo chmod +x ./cmake-$CMAKE_VERSION-Linux-x86_64.sh
+sudo ./cmake-$CMAKE_VERSION-Linux-x86_64.sh --skip-license > /dev/null
+sudo update-alternatives --install /usr/bin/cmake cmake `pwd`/bin/cmake 1000 --force
+
+cd ..
+
+# Steps for GitHub Workflows
+if [[ "$GITHUB_WORKFLOW" ]]; then
+    sudo wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+    sudo apt-get install clang-$GITHUB_CLANG_VERSION libc++-$GITHUB_CLANG_VERSION-dev libc++abi-$GITHUB_CLANG_VERSION-dev
+
+    sudo update-alternatives --install /usr/bin/cc cc /usr/bin/clang-${GITHUB_CLANG_VERSION} 100
+    sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++-${GITHUB_CLANG_VERSION} 100
+fi
 
 # Steps specific to our CI environment
-# CI runs on Ubuntu 14.04, we need to install clang-5.0 and th
+# CI runs on Ubuntu 14.04, we need to install clang-7.0 and the
 # appropriate libc++ ourselves
-if [ "$KOKORO_BUILD_ID" ]; then
+if [[ "$KOKORO_BUILD_ID" ]]; then
     sudo ln -s /usr/include/x86_64-linux-gnu/asm /usr/include/asm
 
+    if [[ "$FILAMENT_ANDROID_CI_BUILD" ]]; then
+        # Update NDK
+        yes | $ANDROID_HOME/tools/bin/sdkmanager "ndk-bundle" > /dev/null
+    fi
+
+    # Install clang
+    # This may or may not be needed...
+    # sudo apt-key adv --keyserver apt.llvm.org --recv-keys 15CF4D18AF4F7421
     sudo apt-add-repository "deb http://apt.llvm.org/trusty/ llvm-toolchain-trusty-$CLANG_VERSION main"
+    wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+    sudo rm -f /etc/apt/sources.list.d/cuda.list
+    sudo rm -f /etc/apt/sources.list.d/nvidia-ml.list
     sudo apt-get update -y
     sudo apt-get --assume-yes --force-yes install clang-$CLANG_VERSION
 
@@ -45,6 +86,7 @@ if [ "$KOKORO_BUILD_ID" ]; then
         -DLIBCXX_ENABLE_RTTI=YES \
         -DLIBCXX_ENABLE_EXCEPTIONS=YES \
         -DLIBCXX_USE_COMPILER_RT=NO \
+        -DLIBCXX_ENABLE_STATIC_ABI_LIBRARY=YES \
         -DLIBCXXABI_USE_COMPILER_RT=NO \
         ../llvm_src
 
@@ -56,15 +98,17 @@ if [ "$KOKORO_BUILD_ID" ]; then
     (cd projects/libcxx && sudo make -j install)
     (cd projects/libcxxabi && sudo make -j install)
 
+    # install embree 3+ to test buildability of the light baking pipeline
+    sudo apt-get install -y alien libtbb-dev
+    curl -LO https://github.com/embree/embree/releases/download/v3.5.2/embree-3.5.2.x86_64.rpm.tar.gz
+    tar xzf embree-3.5.2.x86_64.rpm.tar.gz
+    sudo alien embree3-devel-3.5.2-1.noarch.rpm
+    sudo alien embree3-lib-3.5.2-1.x86_64.rpm
+    sudo dpkg -i embree3-lib_3.5.2-2_amd64.deb
+    sudo dpkg -i embree3-devel_3.5.2-2_all.deb
+
     cd ../..
 
     export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
     export LIBRARY_PATH=/usr/local/lib:$LIBRARY_PATH
-
-    # set to true to link against libc++abi
-    export FILAMENT_REQUIRES_CXXABI=true
 fi
-
-wget -q https://github.com/ninja-build/ninja/releases/download/v1.8.2/ninja-linux.zip
-unzip -q ninja-linux.zip
-export PATH="$PWD:$PATH"

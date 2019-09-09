@@ -19,7 +19,7 @@
 
 #include "details/Texture.h"
 
-#include "driver/Handle.h"
+#include <backend/Handle.h>
 
 #include <utils/compiler.h>
 
@@ -28,6 +28,10 @@ namespace details {
 
 class FEngine;
 class FTexture;
+
+#if !defined(FILAMENT_DFG_LUT_SIZE)
+#define FILAMENT_DFG_LUT_SIZE 128
+#endif
 
 class DFG {
 public:
@@ -41,7 +45,7 @@ public:
         return mLUT != nullptr;
     }
 
-    Handle<HwTexture> getTexture() const noexcept {
+    backend::Handle<backend::HwTexture> getTexture() const noexcept {
         return mLUT->getHwHandle();
     }
 
@@ -57,11 +61,13 @@ private:
     FTexture* mLUT = nullptr;
 
     // make sure to use the right size here
-    static constexpr size_t DFG_LUT_SIZE = 128;
+    static constexpr size_t DFG_LUT_SIZE = FILAMENT_DFG_LUT_SIZE;
 
     // this lookup table is generated with cmgen
     static const uint16_t DFG_LUT[];
 };
+
+#undef FILAMENT_DFG_LUT_SIZE
 
 } // namespace details
 } // namespace filament

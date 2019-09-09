@@ -19,8 +19,9 @@
 
 #include <filament/FilamentAPI.h>
 
-#include <filament/driver/DriverEnums.h>
-#include <filament/driver/PixelBufferDescriptor.h>
+#include <backend/DriverEnums.h>
+
+#include <backend/PixelBufferDescriptor.h>
 
 #include <utils/compiler.h>
 
@@ -133,14 +134,14 @@ public:
      * @param buffer    Client-side buffer where the read-back will be written.
      *
      *                  The following format are always supported:
-     *                      - driver::PixelDataFormat::RGBA
-     *                      - driver::PixelDataFormat::RGBA_INTEGER
+     *                      - PixelBufferDescriptor::PixelDataFormat::RGBA
+     *                      - PixelBufferDescriptor::PixelDataFormat::RGBA_INTEGER
      *
      *                  The following types are always supported:
-     *                      - driver::PixelDataType::UBYTE
-     *                      - driver::PixelDataType::UINT
-     *                      - driver::PixelDataType::INT
-     *                      - driver::PixelDataType::FLOAT
+     *                      - PixelBufferDescriptor::PixelDataType::UBYTE
+     *                      - PixelBufferDescriptor::PixelDataType::UINT
+     *                      - PixelBufferDescriptor::PixelDataType::INT
+     *                      - PixelBufferDescriptor::PixelDataType::FLOAT
      *
      *                  Other combination of format/type may be supported. If a combination is
      *                  not supported, this operation may fail silently. Use a DEBUG build
@@ -150,7 +151,7 @@ public:
      *  +--------------------+
      *  |                    |                .stride         .alignment
      *  |                    |         ----------------------->-->
-     *  |                    |         O----------------------+--+   low adresses
+     *  |                    |         O----------------------+--+   low addresses
      *  |                    |         |          |           |  |
      *  |             w      |         |          | .top      |  |
      *  |       <--------->  |         |          V           |  |
@@ -160,7 +161,7 @@ public:
      *  +------>|     v   |  |         +---->|         |      |  |
      *  |       +.........+  |         |     +.........+      |  |
      *  |            ^       |         |                      |  |
-     *  |          y |       |         +----------------------+--+  high adresses
+     *  |          y |       |         +----------------------+--+  high addresses
      *  O------------+-------+
      *
      * Typically readPixels() will be called after Renderer.beginFrame().
@@ -175,7 +176,16 @@ public:
      * readPixels() is intended for debugging and testing. It will impact performance significantly.
      */
     void readPixels(uint32_t xoffset, uint32_t yoffset, uint32_t width, uint32_t height,
-            driver::PixelBufferDescriptor&& buffer) noexcept;
+            backend::PixelBufferDescriptor&& buffer) noexcept;
+
+    /**
+     * Returns the presentation time of the currently displayed frame in nanosecond.
+     *
+     * This value can change at any time.
+     *
+     * @return timestamp in nanosecond.
+     */
+    int64_t getTimestamp() const noexcept;
 };
 
 } // namespace filament

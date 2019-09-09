@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.10)
 if (POLICY CMP0048)
   cmake_policy(SET CMP0048 NEW)
 endif()
@@ -28,8 +28,8 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 if (APPLE)
   set(CMAKE_MACOSX_RPATH ON)
 endif (APPLE)
-set(SPIRV_SKIP_EXECUTABLES ON)
-set(SPIRV_SKIP_TESTS ON)
+set(SPIRV_SKIP_EXECUTABLES_OPTION ON)
+set(SPIRV_SKIP_TESTS_OPTION ON)
 set(SKIP_SPIRV_TOOLS_INSTALL ON)
 # End Filament specific changes
 
@@ -60,6 +60,11 @@ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Android")
   set(SPIRV_TIMER_ENABLED ON)
 elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "FreeBSD")
   add_definitions(-DSPIRV_FREEBSD)
+# Filament specific changes
+elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Emscripten")
+  # Allow spirv-tools to compile with Emscripten
+  add_definitions(-DSPIRV_EMSCRIPTEN)
+# End Filament specific changes
 else()
   message(FATAL_ERROR "Your platform '${CMAKE_SYSTEM_NAME}' is not supported!")
 endif()
@@ -73,7 +78,9 @@ if ("${CMAKE_BUILD_TYPE}" STREQUAL "")
   set(CMAKE_BUILD_TYPE "Debug")
 endif()
 
-option(SKIP_SPIRV_TOOLS_INSTALL "Skip installation" ${SKIP_SPIRV_TOOLS_INSTALL})
+# Filament specific changes
+#option(SKIP_SPIRV_TOOLS_INSTALL "Skip installation" ${SKIP_SPIRV_TOOLS_INSTALL})
+# End Filament specific changes
 if(NOT ${SKIP_SPIRV_TOOLS_INSTALL})
   set(ENABLE_SPIRV_TOOLS_INSTALL ON)
 endif()
@@ -207,11 +214,13 @@ else()
 endif()
 
 # Defaults to OFF if the user didn't set it.
+# Filament specific changes
 option(SPIRV_SKIP_EXECUTABLES
   "Skip building the executable and tests along with the library"
-  ${SPIRV_SKIP_EXECUTABLES})
+  ${SPIRV_SKIP_EXECUTABLES_OPTION})
 option(SPIRV_SKIP_TESTS
-  "Skip building tests along with the library" ${SPIRV_SKIP_TESTS})
+  "Skip building tests along with the library" ${SPIRV_SKIP_TESTS_OPTION})
+# End Filament specific changes
 if ("${SPIRV_SKIP_EXECUTABLES}")
   set(SPIRV_SKIP_TESTS ON)
 endif()

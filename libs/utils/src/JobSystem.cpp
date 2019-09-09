@@ -21,7 +21,6 @@
 // when SYSTRACE_TAG_JOBSYSTEM is used, enables even heavier systraces
 #define HEAVY_SYSTRACE  0
 
-
 #include <utils/JobSystem.h>
 
 #include <cmath>
@@ -53,6 +52,16 @@
 #    include <unistd.h>
 #    include <sys/syscall.h>
 #    define gettid() syscall(SYS_gettid)
+#endif
+
+#if HEAVY_SYSTRACE
+#   define HEAVY_SYSTRACE_CALL()            SYSTRACE_CALL()
+#   define HEAVY_SYSTRACE_NAME(name)        SYSTRACE_NAME(name)
+#   define HEAVY_SYSTRACE_VALUE32(name, v)  SYSTRACE_VALUE32(name, v)
+#else
+#   define HEAVY_SYSTRACE_CALL()
+#   define HEAVY_SYSTRACE_NAME(name)
+#   define HEAVY_SYSTRACE_VALUE32(name, v)
 #endif
 
 namespace utils {
@@ -87,46 +96,43 @@ void JobSystem::setThreadPriority(Priority priority) noexcept {
 #endif
 }
 
-void JobSystem::setThreadAffinity(uint32_t mask) noexcept {
+void JobSystem::setThreadAffinityById(size_t id) noexcept {
 #if defined(__linux__)
-    int bit = 0;
     cpu_set_t set;
     CPU_ZERO(&set);
-    while (mask) {
-        if (mask & 1) {
-            CPU_SET(bit, &set);
-        }
-        bit++;
-        mask >>= 1;
-    }
+    CPU_SET(id, &set);
     sched_setaffinity(gettid(), sizeof(set), &set);
 #endif
 }
 
-JobSystem::JobSystem(size_t threadCount, size_t adoptableThreadsCount) noexcept
+JobSystem::JobSystem(const size_t userThreadCount, const size_t adoptableThreadsCount) noexcept
     : mJobPool("JobSystem Job pool", MAX_JOB_COUNT * sizeof(Job)),
       mJobStorageBase(static_cast<Job *>(mJobPool.getAllocator().getCurrent()))
 {
     SYSTRACE_ENABLE();
 
-    if (threadCount == 0) {
+    int threadPoolCount = userThreadCount;
+    if (threadPoolCount == 0) {
         // default value, system dependant
-        size_t hwThreads = std::thread::hardware_concurrency();
+        int hwThreads = std::thread::hardware_concurrency();
         if (UTILS_HAS_HYPER_THREADING) {
             // For now we avoid using HT, this simplifies profiling.
             // TODO: figure-out what to do with Hyper-threading
-            threadCount = hwThreads / 2 - 1;
-        } else {
-            threadCount = hwThreads - 1;
+            // since we assumed HT, always round-up to an even number of cores (to play it safe)
+            hwThreads = (hwThreads + 1) / 2;
         }
+        // make sure we have at least one h/w thread (could be an assert instead)
+        hwThreads = std::max(0, hwThreads);
+        // one of the thread will be the user thread
+        threadPoolCount = hwThreads - 1;
     }
-    threadCount = std::min(size_t(UTILS_HAS_THREADING ? 32 : 0), threadCount);
+    threadPoolCount = std::min(UTILS_HAS_THREADING ? 32 : 0, threadPoolCount);
 
-    mThreadStates = aligned_vector<ThreadState>(threadCount + adoptableThreadsCount);
-    mThreadCount = uint16_t(threadCount);
-    mParallelSplitCount = (uint8_t)std::ceil((std::log2f(threadCount + adoptableThreadsCount)));
+    mThreadStates = aligned_vector<ThreadState>(threadPoolCount + adoptableThreadsCount);
+    mThreadCount = uint16_t(threadPoolCount);
+    mParallelSplitCount = (uint8_t)std::ceil((std::log2f(threadPoolCount + adoptableThreadsCount)));
 
-    // this is pitty these are not compile-time checks (C++17 supports it apparently)
+    // this is a pity these are not compile-time checks (C++17 supports it apparently)
     assert(mExitRequested.is_lock_free());
     assert(Job().runningJobCount.is_lock_free());
 
@@ -138,7 +144,7 @@ JobSystem::JobSystem(size_t threadCount, size_t adoptableThreadsCount) noexcept
     for (size_t i = 0, n = states.size(); i < n; i++) {
         auto& state = states[i];
         state.rndGen = default_random_engine(rd());
-        state.mask = uint32_t(1UL << i);
+        state.id = (uint32_t)i;
         state.js = this;
         if (i < hardwareThreadCount) {
             // don't start a thread of adoptable thread slots
@@ -159,29 +165,68 @@ JobSystem::~JobSystem() {
     }
 }
 
+inline void JobSystem::incRef(Job const* job) noexcept {
+    // no action is taken when incrementing the reference counter, therefore we can safely use
+    // memory_order_relaxed.
+    job->refCount.fetch_add(1, std::memory_order_relaxed);
+}
+
+UTILS_NOINLINE
+void JobSystem::decRef(Job const* job) noexcept {
+
+    // We must ensure that accesses from other threads happen before deleting the Job.
+    // To accomplish this, we need to guarantee that no read/writes are reordered after the
+    // dec-ref, because ANOTHER thread could hold the last reference (after us) and that thread
+    // needs to see all accesses completed before it deletes the object. This is done
+    // with memory_order_release.
+    // Similarly, we need to guarantee that no read/write are reordered before the last decref,
+    // or some other thread could see a destroyed object before the ref-count is 0. This is done
+    // with memory_order_acquire.
+    auto c = job->refCount.fetch_sub(1, std::memory_order_acq_rel);
+    assert(c > 0);
+    if (c == 1) {
+        // This was the last reference, it's safe to destroy the job.
+        mJobPool.destroy(job);
+    }
+}
+
 JobSystem* JobSystem::getJobSystem() noexcept {
     ThreadState* const state = sThreadState;
     return state ? state->js : nullptr;
 }
 
 void JobSystem::requestExit() noexcept {
-    mLock.lock();
-    mExitRequested.store(true, std::memory_order_relaxed);
-    mLock.unlock();
-    mCondition.notify_all();
-#if __ARM_ARCH_7A__
-    // on ARMv7a SEL is needed
-        __dsb(0xA);     // ISHST = 0xA (b1010)
-        UTILS_SIGNAL_EVENT();
-#endif
+    mExitRequested.store(true);
+    { std::lock_guard<Mutex> lock(mWaiterLock); }
+    mWaiterCondition.notify_all();
+
 }
 
 inline bool JobSystem::exitRequested() const noexcept {
+    // memory_order_relaxed is safe because the only action taken is to exit the thread
     return mExitRequested.load(std::memory_order_relaxed);
+}
+
+inline bool JobSystem::hasActiveJobs() const noexcept {
+    return mActiveJobs.load(std::memory_order_relaxed) > 0;
 }
 
 inline bool JobSystem::hasJobCompleted(JobSystem::Job const* job) noexcept {
     return job->runningJobCount.load(std::memory_order_relaxed) <= 0;
+}
+
+void JobSystem::wait(std::unique_lock<Mutex>& lock) noexcept {
+    ++mWaiterCount;
+    mWaiterCondition.wait(lock);
+    --mWaiterCount;
+}
+
+void JobSystem::wake() noexcept {
+    Mutex& lock = mWaiterLock;
+    lock.lock();
+    const uint32_t waiterCount = mWaiterCount;
+    lock.unlock();
+    mWaiterCondition.notify_n(waiterCount);
 }
 
 inline JobSystem::ThreadState& JobSystem::getState() noexcept {
@@ -194,60 +239,118 @@ JobSystem::Job* JobSystem::allocateJob() noexcept {
     return mJobPool.make<Job>();
 }
 
-inline JobSystem::ThreadState& JobSystem::getStateToStealFrom(JobSystem::ThreadState& state) noexcept {
+inline JobSystem::ThreadState* JobSystem::getStateToStealFrom(JobSystem::ThreadState& state) noexcept {
+    auto& threadStates = mThreadStates;
+    // memory_order_relaxed is okay because we don't take any action that has data dependency
+    // on this value (in particular mThreadStates, is always initialized properly).
     uint16_t adopted = mAdoptedThreads.load(std::memory_order_relaxed);
-    // this is biased, but frankly, we don't care. it's fast.
-    uint16_t index = uint16_t(state.rndGen() % (mThreadCount + adopted));
-    assert(index < mThreadStates.size());
-    return mThreadStates[index];
+    uint16_t const threadCount = mThreadCount + adopted;
+
+    JobSystem::ThreadState* stateToStealFrom = nullptr;
+
+    // don't try to steal from someone else if we're the only thread (infinite loop)
+    if (threadCount >= 2) {
+        do {
+            // this is biased, but frankly, we don't care. it's fast.
+            uint16_t index = uint16_t(state.rndGen() % threadCount);
+            assert(index < threadStates.size());
+            stateToStealFrom = &threadStates[index];
+            // don't steal from our own queue
+        } while (stateToStealFrom == &state);
+    }
+    return stateToStealFrom;
+}
+
+JobSystem::Job* JobSystem::steal(JobSystem::ThreadState& state) noexcept {
+    HEAVY_SYSTRACE_CALL();
+    Job* job = nullptr;
+    do {
+        ThreadState* const stateToStealFrom = getStateToStealFrom(state);
+        if (UTILS_LIKELY(stateToStealFrom)) {
+            job = steal(stateToStealFrom->workQueue);
+        }
+        // nullptr -> nothing to steal in that queue either, if there are active jobs,
+        // continue to try stealing one.
+    } while (!job && hasActiveJobs());
+    return job;
 }
 
 bool JobSystem::execute(JobSystem::ThreadState& state) noexcept {
+    HEAVY_SYSTRACE_CALL();
 
     Job* job = pop(state.workQueue);
-    if (job == nullptr) {
+    if (UTILS_UNLIKELY(job == nullptr)) {
         // our queue is empty, try to steal a job
-        ThreadState& stateToStealFrom = getStateToStealFrom(state);
-        if (&stateToStealFrom != &state) {
-            // don't steal from our own queue
-            job = steal(stateToStealFrom.workQueue);
-            // nullptr -> nothing to steal in that queue either
-        }
+        job = steal(state);
     }
 
     if (job) {
-        SYSTRACE_CALL();
-
-        UTILS_UNUSED uint32_t activeJobs = mActiveJobs.fetch_sub(1, std::memory_order_acq_rel);
+        UTILS_UNUSED_IN_RELEASE
+        uint32_t activeJobs = mActiveJobs.fetch_sub(1, std::memory_order_relaxed);
         assert(activeJobs); // whoops, we were already at 0
-        
-        SYSTRACE_VALUE32("JobSystem::activeJobs", activeJobs - 1);
+        HEAVY_SYSTRACE_VALUE32("JobSystem::activeJobs", activeJobs - 1);
 
         if (UTILS_LIKELY(job->function)) {
-            SYSTRACE_NAME("job->function");
-            job->function(job->padding, *this, job);
+            HEAVY_SYSTRACE_NAME("job->function");
+            job->function(job->storage, *this, job);
         }
         finish(job);
     }
     return job != nullptr;
 }
 
-void JobSystem::loop(ThreadState* threadState) noexcept {
+void JobSystem::loop(ThreadState* state) noexcept {
     setThreadName("JobSystem::loop");
     setThreadPriority(Priority::DISPLAY);
 
+    // set a CPU affinity on each of our JobSystem thread to prevent them from jumping from core
+    // to core. On Android, it looks like the affinity needs to be reset from time to time.
+    setThreadAffinityById(state->id);
+
     // record our work queue to thread-local storage
-    sThreadState = threadState;
+    sThreadState = state;
 
     // run our main loop...
     do {
-        if (!execute(*threadState)) {
-            std::unique_lock<Mutex> lock(mLock);
-            while (!exitRequested() && !(mActiveJobs.load(std::memory_order_relaxed))) {
-                mCondition.wait(lock);
+        if (!execute(*state)) {
+            std::unique_lock<Mutex> lock(mWaiterLock);
+            while (!exitRequested() && !hasActiveJobs()) {
+                wait(lock);
+                setThreadAffinityById(state->id);
             }
         }
     } while (!exitRequested());
+}
+
+UTILS_NOINLINE
+void JobSystem::finish(Job* job) noexcept {
+    HEAVY_SYSTRACE_CALL();
+
+    bool notify = false;
+
+    // terminate this job and notify its parent
+    Job* const storage = mJobStorageBase;
+    do {
+        // std::memory_order_release here is needed to synchronize with JobSystem::wait()
+        // which needs to "see" all changes that happened before the job terminated.
+        auto runningJobCount = job->runningJobCount.fetch_sub(1, std::memory_order_acq_rel);
+        assert(runningJobCount > 0);
+        if (runningJobCount == 1) {
+            // no more work, destroy this job and notify its parent
+            notify = true;
+            Job* const parent = job->parent == 0x7FFF ? nullptr : &storage[job->parent];
+            decRef(job);
+            job = parent;
+        } else {
+            // there is still work (e.g.: children), we're done.
+            break;
+        }
+    } while (job);
+
+    // wake-up all threads that could potentially be waiting on this job finishing
+    if (notify) {
+        wake();
+    }
 }
 
 // -----------------------------------------------------------------------------------------------
@@ -260,53 +363,45 @@ JobSystem::Job* JobSystem::create(JobSystem::Job* parent, JobFunc func) noexcept
     if (UTILS_LIKELY(job)) {
         size_t index = 0x7FFF;
         if (parent) {
-            // can't create a child job of a terminated parent
-            assert(parent->runningJobCount.load(std::memory_order_relaxed) > 0);
+            // add a reference to the parent to make sure it can't be terminated.
+            // memory_order_relaxed is safe because no action is taken at this point
+            // (the job is not started yet).
+            auto parentJobCount = parent->runningJobCount.fetch_add(1, std::memory_order_relaxed);
 
-            parent->runningJobCount.fetch_add(1, std::memory_order_relaxed);
+            // can't create a child job of a terminated parent
+            assert(parentJobCount > 0);
+
             index = parent - mJobStorageBase;
             assert(index < MAX_JOB_COUNT);
         }
         job->function = func;
         job->parent = uint16_t(index);
-        job->runningJobCount.store(1, std::memory_order_relaxed);
     }
     return job;
 }
 
-void JobSystem::finish(Job* job) noexcept {
-    SYSTRACE_CALL();
-
-    // terminate this job and notify its parent
-    auto& jobPool = mJobPool;
-    Job* const storage = mJobStorageBase;
-    do {
-        // std::memory_order_release here is needed to synchronize with JobSystem::wait()
-        // which needs to "see" all changes that happened before the job terminated.
-        int32_t runningJobCount = job->runningJobCount.fetch_sub(1, std::memory_order_release) - 1;
-        assert(runningJobCount >= 0);
-        if (runningJobCount >= 1) {
-            // there is still work (e.g.: children), we're done.
-            break;
-        }
-        Job* const parent = job->parent == 0x7FFF ? nullptr : &storage[job->parent];
-        // destroy this job...
-        jobPool.destroy(job);
-        // ... and check the parent
-        job = parent;
-    } while (job);
-
-#if __ARM_ARCH_7A__
-    // on ARMv7a SEL is needed
-    __dsb(0xA);     // ISHST = 0xA (b1010)
-    UTILS_SIGNAL_EVENT();
-#endif
+void JobSystem::cancel(Job*& job) noexcept {
+    finish(job);
+    job = nullptr;
 }
 
-void JobSystem::run(JobSystem::Job* job, uint32_t flags) noexcept {
-#if HEAVY_SYSTRACE
-    SYSTRACE_CALL();
-#endif
+JobSystem::Job* JobSystem::retain(JobSystem::Job* job) noexcept {
+    JobSystem::Job* retained = job;
+    incRef(retained);
+    return retained;
+}
+
+void JobSystem::release(JobSystem::Job*& job) noexcept {
+    decRef(job);
+    job = nullptr;
+}
+
+void JobSystem::signal() noexcept {
+    wake();
+}
+
+void JobSystem::run(JobSystem::Job*& job, uint32_t flags) noexcept {
+    HEAVY_SYSTRACE_CALL();
 
     ThreadState& state(getState());
 
@@ -317,35 +412,65 @@ void JobSystem::run(JobSystem::Job* job, uint32_t flags) noexcept {
 
     put(state.workQueue, job);
 
-    SYSTRACE_CONTEXT();
-    SYSTRACE_VALUE32("JobSystem::activeJobs", activeJobs + 1);
+    HEAVY_SYSTRACE_VALUE32("JobSystem::activeJobs", activeJobs + 1);
 
     // wake-up a thread if needed...
     if (!(flags & DONT_SIGNAL)) {
-        // if it was busy before, try to wake-up another sleeping thread
-        if (activeJobs) {
-            // wake-up a queue
-            { std::lock_guard<Mutex> lock(mLock); }
-            mCondition.notify_one();
-        }
+        // wake-up multiple queues because there could be multiple jobs queued
+        // especially if DONT_SIGNAL was used
+        wake();
     }
+
+    // after run() returns, the job is virtually invalid (it'll die on its own)
+    job = nullptr;
 }
 
-void JobSystem::wait(JobSystem::Job const* job) noexcept {
+JobSystem::Job* JobSystem::runAndRetain(JobSystem::Job* job, uint32_t flags) noexcept {
+    JobSystem::Job* retained = retain(job);
+    run(job, flags);
+    return retained;
+}
+
+void JobSystem::waitAndRelease(Job*& job) noexcept {
     SYSTRACE_CALL();
 
     assert(job);
+    assert(job->refCount.load(std::memory_order_relaxed) >= 1);
+
     ThreadState& state(getState());
     do {
         if (!execute(state)) {
-            // we're a waiter so we spin!!!
-            UTILS_WAIT_FOR_EVENT();
+            // test if job has completed first, to possibly avoid taking the lock
+            if (hasJobCompleted(job)) {
+                break;
+            }
+
+            // the only way we can be here is if the job we're waiting on it being handled
+            // by another thread:
+            //    - we returned from execute() which means all queues are empty
+            //    - yet our job hasn't completed yet
+            //    ergo, it's being run in another thread
+            //
+            // this could take time however, so we will wait with a condition, and
+            // continue to handle more jobs, as they get added.
+
+            std::unique_lock<Mutex> lock(mWaiterLock);
+            if (!hasJobCompleted(job) && !hasActiveJobs() && !exitRequested()) {
+                wait(lock);
+            }
         }
     } while (!hasJobCompleted(job) && !exitRequested());
 
-    // std::memory_order_acquire here is needed to synchronize with JobSystem::finish()
-    // this guarantees we "see" all the changes performed by the job that just finished.
-    std::atomic_thread_fence(std::memory_order_acquire);
+    if (job == mMasterJob) {
+        mMasterJob = nullptr;
+    }
+
+    release(job);
+}
+
+void JobSystem::runAndWait(JobSystem::Job*& job) noexcept {
+    runAndRetain(job);
+    waitAndRelease(job);
 }
 
 void JobSystem::adopt() {
@@ -358,6 +483,7 @@ void JobSystem::adopt() {
         return;
     }
 
+    // memory_order_relaxed is safe because we don't take action on this value.
     uint16_t adopted = mAdoptedThreads.fetch_add(1, std::memory_order_relaxed);
     size_t index = mThreadCount + adopted;
 
@@ -383,7 +509,7 @@ void JobSystem::emancipate() {
 
 io::ostream& operator<<(io::ostream& out, JobSystem const& js) {
     for (auto const& item : js.mThreadStates) {
-        out << size_t(std::log2f(item.mask)) << ": " << item.workQueue.getCount() << io::endl;
+        out << size_t(item.id) << ": " << item.workQueue.getCount() << io::endl;
     }
     return out;
 }

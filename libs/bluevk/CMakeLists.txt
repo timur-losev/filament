@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.10)
 project(bluevk)
 
 set(TARGET              bluevk)
@@ -33,7 +33,8 @@ target_link_libraries(${TARGET} utils)
 
 target_include_directories(${TARGET} PUBLIC ${PUBLIC_HDR_DIR})
 
-if (NOT ANDROID)
+# test_bluevk is not supported on mobile or Windows
+if (NOT ANDROID AND NOT IOS AND NOT WIN32)
     add_executable(test_bluevk tests/test_bluevk_sdl.cpp)
     target_link_libraries(test_bluevk PRIVATE dl bluevk sdl2)
 endif()

@@ -14,27 +14,53 @@
  * limitations under the License.
  */
 
-#include "filament/UniformInterfaceBlock.h"
+#include "private/filament/UniformInterfaceBlock.h"
 
 #include <utils/Panic.h>
 #include <utils/compiler.h>
+#include <private/filament/UniformInterfaceBlock.h>
 
-#include <iostream>
-#include <string>
 
 using namespace utils;
 
 namespace filament {
 
-UniformInterfaceBlock::Builder& UniformInterfaceBlock::Builder::name(const std::string& interfaceBlockName) {
-    mName = CString(interfaceBlockName.c_str());
+UniformInterfaceBlock::Builder&
+UniformInterfaceBlock::Builder::name(utils::CString const& interfaceBlockName) {
+    mName = interfaceBlockName;
+    return *this;
+}
+
+UniformInterfaceBlock::Builder&
+UniformInterfaceBlock::Builder::name(utils::CString&& interfaceBlockName) {
+    interfaceBlockName.swap(mName);
+    return *this;
+}
+
+UniformInterfaceBlock::Builder&
+UniformInterfaceBlock::Builder::name(utils::StaticString const& interfaceBlockName) {
+    mName = CString{ interfaceBlockName };
     return *this;
 }
 
 UniformInterfaceBlock::Builder& UniformInterfaceBlock::Builder::add(
-        const std::string& uniformName, size_t size, UniformInterfaceBlock::Type type,
+        utils::CString const& uniformName, size_t size, UniformInterfaceBlock::Type type,
         UniformInterfaceBlock::Precision precision) {
-    mEntries.emplace_back(CString(uniformName.c_str()), size, type, precision);
+    mEntries.emplace_back(uniformName, size, type, precision);
+    return *this;
+}
+
+UniformInterfaceBlock::Builder& UniformInterfaceBlock::Builder::add(
+        utils::CString&& uniformName, size_t size, UniformInterfaceBlock::Type type,
+        UniformInterfaceBlock::Precision precision) {
+    mEntries.emplace_back(std::move(uniformName), size, type, precision);
+    return *this;
+}
+
+UniformInterfaceBlock::Builder& UniformInterfaceBlock::Builder::add(
+        utils::StaticString const& uniformName, size_t size, UniformInterfaceBlock::Type type,
+        UniformInterfaceBlock::Precision precision) {
+    mEntries.emplace_back(uniformName, size, type, precision);
     return *this;
 }
 
@@ -48,11 +74,11 @@ UniformInterfaceBlock::UniformInterfaceBlock() = default;
 UniformInterfaceBlock::UniformInterfaceBlock(const UniformInterfaceBlock& rhs) = default;
 UniformInterfaceBlock::UniformInterfaceBlock(UniformInterfaceBlock&& rhs) noexcept /* = default */ {};
 UniformInterfaceBlock& UniformInterfaceBlock::operator=(const UniformInterfaceBlock& rhs) = default;
-UniformInterfaceBlock& UniformInterfaceBlock::operator=(UniformInterfaceBlock&& rhs) noexcept = default;
+UniformInterfaceBlock& UniformInterfaceBlock::operator=(UniformInterfaceBlock&& rhs) /*noexcept*/ = default;
 UniformInterfaceBlock::~UniformInterfaceBlock() noexcept = default;
 
-UniformInterfaceBlock::UniformInterfaceBlock(Builder& builder) noexcept
-    : mName(std::move(builder.mName))
+UniformInterfaceBlock::UniformInterfaceBlock(Builder const& builder) noexcept
+    : mName(builder.mName)
 {
     auto& infoMap = mInfoMap;
     auto& uniformsInfoList = mUniformsInfoList;
@@ -65,7 +91,7 @@ UniformInterfaceBlock::UniformInterfaceBlock(Builder& builder) noexcept
         size_t alignment = baseAlignmentForType(e.type);
         uint8_t stride = strideForType(e.type);
         if (e.size > 1) { // this is an array
-            // round the alignment up to that of a double4
+            // round the alignment up to that of a float4
             alignment = (alignment + 3) & ~3;
             stride = (stride + uint8_t(3)) & ~uint8_t(3);
         }
@@ -75,7 +101,7 @@ UniformInterfaceBlock::UniformInterfaceBlock(Builder& builder) noexcept
         offset += padding;
 
         UniformInfo& info = uniformsInfoList[i];
-        info = { std::move(e.name), offset, stride, e.type, e.size, e.precision };
+        info = { e.name, offset, stride, e.type, e.size, e.precision };
 
         // record this uniform info
         infoMap[info.name.c_str()] = i;

@@ -57,6 +57,12 @@ public:
     // whether the Renderer wants to skip or not.
     void render(float timeStepInSeconds, Callback imguiCommands);
 
+    // Helper method called after resolving fontPath; public so fonts can be added by caller.
+    void createAtlasTexture(filament::Engine* engine);
+
+    // Return the ImGui view, useful for drawing 2D overlays.
+    filament::View* getView() const { return mView; }
+
   private:
       void renderDrawData(ImDrawData* imguiData);
       void createBuffers(int numRequiredBuffers);
@@ -67,7 +73,7 @@ public:
       void syncThreads();
       filament::Engine* mEngine;
       filament::View* mView;
-      filament::Material const* mMaterial = nullptr;
+      filament::Material* mMaterial = nullptr;
       std::vector<filament::VertexBuffer*> mVertexBuffers;
       std::vector<filament::IndexBuffer*> mIndexBuffers;
       std::vector<filament::MaterialInstance*> mMaterialInstances;

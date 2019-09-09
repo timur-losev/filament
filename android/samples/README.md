@@ -3,9 +3,54 @@
 This directory contains several sample Android applications that demonstrate how to use the
 Filament APIs:
 
-- `hello-triangle`: Minimal example showing how to setup a rendering surface for Filament
-- `lit-cube`: Shows how to create a light and a mesh with the attributes required for lighting
-- `image-based-lighting`: Demonstrates how to create image-based lights and load complex meshes 
+### `hello-triangle`
+
+Demonstrates how to setup a rendering surface for Filament:
+
+![Hello Triangle](../../docs/images/samples/sample_hello_triangle.jpg)
+
+### `lit-cube`
+
+Demonstrates how to create a light and a mesh with the attributes required for lighting:
+
+![Lit Cube](../../docs/images/samples/sample_lit_cube.jpg)
+
+### `image-based-lighting`
+
+Demonstrates how to create image-based lights and load complex meshes:
+
+![Image-based Lighting](../../docs/images/samples/sample_image_based_lighting.jpg)
+
+### `textured-object`
+
+Demonstrates how to load and use textures for complex materials:
+
+![Textured Object](../../docs/images/samples/sample_textured_object.jpg)
+
+### `transparent-rendering`
+
+Demonstrates how to render into a transparent `SurfaceView`:
+
+![Transparent Rendering](../../docs/images/samples/sample_transparent_rendering.jpg)
+
+### `texture-view`
+
+Demonstrates how to render into a `TextureView` instead of a `SurfaceView`:
+
+![Texture View](../../docs/images/samples/sample_texture_view.jpg)
+
+### `material-builder`
+
+Demonstrates how to programatically generate Filament materials, as opposed to compiling them on the
+host machine:
+
+![Material Builder](../../docs/images/samples/sample_image_based_lighting.jpg)
+
+### `gltf-bloom`
+
+Demonstrates how to load glTF models and render to an offscreen buffer:
+
+![glTF Bloom](../../docs/images/samples/sample_gltf_bloom.jpg)
 
 ## Prerequisites
 
@@ -31,10 +76,16 @@ Example:
 $ ./gradlew -Pfilament_tools_dir=../../dist-release assembleDebug
 ```
 
+## Important: SDK location
+
+
+Either ensure your `ANDROID_HOME` environment variable is set or make sure each project contains a
+`local.properties` file with the `sdk.dir` property pointing to your installation of the Android
+SDK. This includes the project `filament-android` in the parent directory.
+
 ## Android Studio
 
-Due to issues with composite builds in Android Studio 3.1, it is highly recommended to use
-Android Studio 3.2 to open this project.
+You must use Android Studio 3.3 or higher to open these projects.
 
 ## Compiling
 

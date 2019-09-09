@@ -5,7 +5,7 @@ Google code style and is derived from the Java code style, but not quite.
 
 The guiding principles of the filament code style and code formatting can be resumed as:
 - no nonsense
-- use your own judgement 
+- use your own judgement
 - break the rules **if it makes sense** e.g.: it improves readability substantially
 - use the formatting of the file you're in, even if it breaks the rules
 - no nonsense
@@ -41,14 +41,15 @@ private:
 - included files use the `.inc` extension
 - class files bear the name of the class they implement
 - **no spaces** in file names
-- file names must be treated as case **insensitive**, i.e. it is not allowed to have several files with the same name but a different case
+- file names must be treated as case **insensitive**, i.e. it is not allowed to have several files
+  with the same name but a different case
 - `#include` must use **fully qualified** names
 - use `#include < >` for all public (exported) headers
 - use `#include " "` for private headers
 - all *public* include files must reside under the `include` folder
 - all *source* files must reside under the `src` folder
 - tests reside under the `test` folder
-- public headers of a `foo` library must live in a folder named `foo`  
+- public headers of a `foo` library must live in a folder named `foo`
 
 ```
 libfoo.so
@@ -78,11 +79,11 @@ extern int gGlobalWarming;
 class FooBar {
 public:
     void methodName();
-    int sizeInBytes;    
+    int sizeInBytes;
 private:
     int mAttributeName;
     static int sGlobalAttribute;
-    staric constexpr int FOO_COUNT = 10;
+    static constexpr int FOO_COUNT = 10;
     enum {
         ONE, TWO, THREE
     };
@@ -93,7 +94,7 @@ private:
 
 ### Files
 
-- always include the copyright notice at the top of every file 
+- always include the copyright notice at the top of every file
 - make sure the date is correct
 
 ```
@@ -120,6 +121,9 @@ private:
 - other headers are sorted in reverse order of their layering, that is, lower layer headers last
 - within a layer, headers are sorted alphabetically
 - strive for implementing one class per file
+- `STL` limited in public headers to:
+    - `type_traits`
+    - `limits`
 
 *Sorting the headers is important to help catching missing `#include` directives.*
 
@@ -158,9 +162,16 @@ private:
 #include <string.h>
 ```
 
+### Strings
+
+- Never use `std::string` in the Filament core renderer. Prefer `utils::CString` or
+  `utils::StaticString`.
+- When using `std::string` in tools, always include the `std::` qualifier to disambiguate it
+  from other string types.
+
 ### Misc
 
-- Use `auto` only when the type appears on the same line or with iterators
+- Use `auto` only when the type appears on the same line or with iterators and lambdas.
 ```
 auto foo = new Foo();
 for (auto& i : collection) { }

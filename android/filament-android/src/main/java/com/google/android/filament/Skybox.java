@@ -19,10 +19,13 @@ package com.google.android.filament;
 import android.support.annotation.IntRange;
 import android.support.annotation.NonNull;
 
+import com.google.android.filament.proguard.UsedByReflection;
+
 public class Skybox {
     private long mNativeObject;
 
-    private Skybox(long nativeSkybox) {
+    @UsedByReflection("KtxLoader.java")
+    Skybox(long nativeSkybox) {
         mNativeObject = nativeSkybox;
     }
 
@@ -80,7 +83,7 @@ public class Skybox {
         return nGetLayerMask(getNativeObject());
     }
 
-    long getNativeObject() {
+    public long getNativeObject() {
         if (mNativeObject == 0) {
             throw new IllegalStateException("Calling method on destroyed Skybox");
         }

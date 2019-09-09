@@ -30,10 +30,24 @@
 #define __has_builtin(x) 0
 #endif
 
-#define UTILS_PUBLIC  __attribute__((visibility("default")))
+#if __has_attribute(visibility)
+#    define UTILS_PUBLIC  __attribute__((visibility("default")))
+#else
+#    define UTILS_PUBLIC  
+#endif
 
-#ifndef TNT_DEV
-#    define UTILS_PRIVATE __attribute__((visibility("hidden")))
+#if __has_attribute(packed)
+#   define UTILS_PACKED __attribute__((packed))
+#else
+#   define UTILS_PACKED
+#endif
+
+#if __has_attribute(visibility)
+#    ifndef TNT_DEV
+#        define UTILS_PRIVATE __attribute__((visibility("hidden")))
+#    else
+#        define UTILS_PRIVATE
+#    endif
 #else
 #    define UTILS_PRIVATE
 #endif
@@ -107,13 +121,12 @@
 #define UTILS_UNUSED_IN_RELEASE
 #endif
 
-#define UTILS_RESTRICT __restrict__
-
-// TODO: set the proper alignment for the target
-#ifndef __EMSCRIPTEN__
-#define UTILS_ALIGN_LOOP {__asm__ __volatile__(".align 4");}
+#if defined(_MSC_VER) && _MSC_VER >= 1900
+#    define UTILS_RESTRICT __restrict
+#elif (defined(__clang__) || defined(__GNUC__))
+#    define UTILS_RESTRICT __restrict__
 #else
-#define UTILS_ALIGN_LOOP
+#    define UTILS_RESTRICT
 #endif
 
 #if __has_feature(cxx_thread_local)

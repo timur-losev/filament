@@ -19,7 +19,7 @@
 #include <utils/StructureOfArrays.h>
 #include <math/vec4.h>
 
-using namespace math;
+using namespace filament::math;
 using namespace utils;
 
 struct TestFloat4 : public float4 {
@@ -29,6 +29,9 @@ struct TestFloat4 : public float4 {
         y = -2;
         z = -3;
         w = -4;
+    }
+    friend bool operator < (TestFloat4 const& lhs, TestFloat4 const& rhs) noexcept {
+        return any(lessThan(lhs, rhs));
     }
 };
 

@@ -18,11 +18,12 @@
 
 #include <stdlib.h>
 #include <string.h>
+
 #if !defined(WIN32)
-#include <unistd.h>
+#   include <unistd.h>
 #else
-#include <io.h>
-#define close _close
+#   include <io.h>
+#   define close _close
 #endif
 
 #include <algorithm>
@@ -43,26 +44,25 @@
     };
 #endif
 
-static int perf_event_open(struct perf_event_attr* hw_event, pid_t pid,
+static int perf_event_open(perf_event_attr* hw_event, pid_t pid,
         int cpu, int group_fd, unsigned long flags) {
-    return syscall(__NR_perf_event_open, hw_event, pid, cpu, group_fd, flags);
+    return (int)syscall(__NR_perf_event_open, hw_event, pid, cpu, group_fd, flags);
 }
 
 #endif // __linux__
 
 namespace utils {
 
-Profiler& Profiler::get() noexcept {
-    static Profiler sProfiler;
-    return sProfiler;
-}
-
 Profiler::Profiler() noexcept {
     std::uninitialized_fill(std::begin(mCountersFd), std::end(mCountersFd), -1);
-    Profiler::resetEvents(EV_CPU_CYCLES | EV_L1D_RATES | EV_BPU_RATES);
+}
+
+Profiler::Profiler(uint32_t eventMask) noexcept : Profiler() {
+    Profiler::resetEvents(eventMask);
 }
 
 Profiler::~Profiler() noexcept {
+    #pragma nounroll
     for (int fd : mCountersFd) {
         if (fd >= 0) {
             close(fd);
@@ -72,6 +72,7 @@ Profiler::~Profiler() noexcept {
 
 uint32_t Profiler::resetEvents(uint32_t eventMask) noexcept {
     // close all counters
+    #pragma nounroll
     for (int& fd : mCountersFd) {
         if (fd >= 0) {
             close(fd);
@@ -82,10 +83,9 @@ uint32_t Profiler::resetEvents(uint32_t eventMask) noexcept {
 
 #if defined(__linux__)
 
-    struct perf_event_attr pe;
-    memset(&pe, 0, sizeof(struct perf_event_attr));
+    perf_event_attr pe{};
     pe.type = PERF_TYPE_HARDWARE;
-    pe.size = sizeof(struct perf_event_attr);
+    pe.size = sizeof(perf_event_attr);
     pe.config = PERF_COUNT_HW_INSTRUCTIONS;
     pe.disabled = 1;
     pe.exclude_kernel = 1;
@@ -133,7 +133,7 @@ uint32_t Profiler::resetEvents(uint32_t eventMask) noexcept {
                 mEnabledEvents |= EV_L1D_MISSES;
             }
         }
-    
+
         if (eventMask & EV_BPU_REFS) {
             pe.type = PERF_TYPE_HARDWARE;
             pe.config = PERF_COUNT_HW_BRANCH_INSTRUCTIONS;
@@ -143,7 +143,7 @@ uint32_t Profiler::resetEvents(uint32_t eventMask) noexcept {
                 mEnabledEvents |= EV_BPU_REFS;
             }
         }
-    
+
         if (eventMask & EV_BPU_MISSES) {
             pe.type = PERF_TYPE_HARDWARE;
             pe.config = PERF_COUNT_HW_BRANCH_MISSES;
@@ -153,7 +153,7 @@ uint32_t Profiler::resetEvents(uint32_t eventMask) noexcept {
                 mEnabledEvents |= EV_BPU_MISSES;
             }
         }
-    
+
 #ifdef __ARM_ARCH
         if (eventMask & EV_L1I_REFS) {
             pe.type = PERF_TYPE_RAW;
@@ -201,5 +201,26 @@ uint32_t Profiler::resetEvents(uint32_t eventMask) noexcept {
 #endif // __linux__
     return mEnabledEvents;
 }
+
+#if defined(__linux__)
+
+Profiler::Counters Profiler::readCounters() noexcept {
+    Counters outCounters{};
+    Counters counters; // NOLINT
+    ssize_t n = read(mCountersFd[0], &counters, sizeof(Counters));
+    if (n > 0) {
+        outCounters.nr = counters.nr;
+        outCounters.time_enabled = counters.time_enabled;
+        outCounters.time_running = counters.time_running;
+        for (size_t i = 0; i < size_t(EVENT_COUNT); i++) {
+            // in theory we should check that mCountersFd[i] >= 0, but we don't to avoid
+            // a branch, mIds[] is initialized such we won't access past the counters array.
+            outCounters.counters[i] = counters.counters[mIds[i]];
+        }
+    }
+    return outCounters;
+}
+
+#endif // __linux__
 
 } // namespace utils

@@ -21,6 +21,8 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.Size;
 
+import com.google.android.filament.proguard.UsedByReflection;
+
 import java.nio.Buffer;
 import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
@@ -30,6 +32,7 @@ import static com.google.android.filament.Texture.Type.COMPRESSED;
 public class Texture {
     private long mNativeObject;
 
+    @UsedByReflection("KtxLoader.java")
     Texture(long nativeTexture) {
         mNativeObject = nativeTexture;
     }
@@ -59,7 +62,9 @@ public class Texture {
         R32F, R32UI, R32I,
         RG16F, RG16UI, RG16I,
         R11F_G11F_B10F,
-        RGBA8, SRGB8_A8, RGBA8_SNORM, RGBM, RGB10_A2, RGBA8UI, RGBA8I,
+        RGBA8, SRGB8_A8, RGBA8_SNORM,
+        UNUSED, // used to be rgbm
+        RGB10_A2, RGBA8UI, RGBA8I,
         DEPTH32F, DEPTH24_STENCIL8, DEPTH32F_STENCIL8,
 
         // 48-bits per element
@@ -116,7 +121,7 @@ public class Texture {
         RGB_INTEGER,
         RGBA,
         RGBA_INTEGER,
-        RGBM,
+        UNUSED,
         DEPTH_COMPONENT,
         DEPTH_STENCIL,
         STENCIL_INDEX,
@@ -132,7 +137,8 @@ public class Texture {
         INT,
         HALF,
         FLOAT,
-        COMPRESSED
+        COMPRESSED,
+        UINT_10F_11F_11F_REV
     }
 
     public static class PixelBufferDescriptor {
@@ -250,7 +256,6 @@ public class Texture {
                     break;
                 case RGBA:
                 case RGBA_INTEGER:
-                case RGBM:
                     n = 4;
                     break;
             }
@@ -271,12 +276,21 @@ public class Texture {
                 case FLOAT:
                     bpp *= 4;
                     break;
+                case UINT_10F_11F_11F_REV:
+                    // Special case, format must be RGB and uses 4 bytes
+                    bpp = 4;
+                    break;
             }
 
             int bpr = bpp * stride;
             int bprAligned = (bpr + (alignment - 1)) & -alignment;
             return bprAligned * height;
         }
+    }
+
+    public static class PrefilterOptions {
+        public int sampleCount = 8;
+        public boolean mirror = true;
     }
 
     public static boolean isTextureFormatSupported(@NonNull Engine engine,
@@ -331,6 +345,17 @@ public class Texture {
             return this;
         }
 
+        /**
+         * Sets the usage flags, which is necessary when attaching to {@link RenderTarget}.
+         *
+         * The flags argument much be a combination of {@link Usage} flags.
+         */
+        @NonNull
+        public Builder usage(int flags) {
+            nBuilderUsage(mNativeBuilder, flags);
+            return this;
+        }
+
         @NonNull
         public Texture build(@NonNull Engine engine) {
             long nativeTexture = nBuilderBuild(mNativeBuilder, engine.getNativeObject());
@@ -355,6 +380,15 @@ public class Texture {
                 }
             }
         }
+    }
+
+    public static class Usage {
+        public static final int COLOR_ATTACHMENT = 0x1;
+        public static final int DEPTH_ATTACHMENT = 0x2;
+        public static final int STENCIL_ATTACHMENT = 0x4;
+        public static final int UPLOADABLE = 0x8;
+        public static final int SAMPLEABLE = 0x10;
+        public static final int DEFAULT = UPLOADABLE | SAMPLEABLE;
     }
 
     public static final int BASE_LEVEL = 0;
@@ -462,7 +496,35 @@ public class Texture {
         nGenerateMipmaps(getNativeObject(), engine.getNativeObject());
     }
 
-    long getNativeObject() {
+    public void generatePrefilterMipmap(@NonNull Engine engine,
+        @NonNull PixelBufferDescriptor buffer, @NonNull @Size(min = 6) int[] faceOffsetsInBytes,
+            PrefilterOptions options) {
+
+        int width = getWidth(0);
+        int height= getHeight(0);
+        int sampleCount = 8;
+        boolean mirror = true;
+        if (options != null) {
+            sampleCount = options.sampleCount;
+            mirror = options.mirror;
+        }
+
+        int result = nGeneratePrefilterMipmap(getNativeObject(), engine.getNativeObject(),
+            width, height,
+            buffer.storage, buffer.storage.remaining(),
+            buffer.left, buffer.top, buffer.type.ordinal(), buffer.alignment,
+            buffer.stride, buffer.format.ordinal(), faceOffsetsInBytes,
+            buffer.handler, buffer.callback,
+            sampleCount, mirror);
+
+        if (result < 0) {
+            throw new BufferOverflowException();
+        }
+    }
+
+
+    @UsedByReflection("TextureHelper.java")
+    public long getNativeObject() {
         if (mNativeObject == 0) {
             throw new IllegalStateException("Calling method on destroyed Texture");
         }
@@ -484,6 +546,7 @@ public class Texture {
     private static native void nBuilderLevels(long nativeBuilder, int levels);
     private static native void nBuilderSampler(long nativeBuilder, int sampler);
     private static native void nBuilderFormat(long nativeBuilder, int format);
+    private static native void nBuilderUsage(long nativeBuilder, int flags);
     private static native long nBuilderBuild(long nativeBuilder, long nativeEngine);
 
     private static native int nGetWidth(long nativeTexture, int level);
@@ -515,7 +578,8 @@ public class Texture {
             int alignment, int compressedSizeInBytes, int compressedFormat,
             int[] faceOffsetsInBytes, Object handler, Runnable callback);
 
-    private static native void nSetExternalImage(long nativeObject, long nativeObject1, long eglImage);
+    private static native void nSetExternalImage(
+            long nativeObject, long nativeEngine, long eglImage);
 
     private static native void nSetExternalStream(long nativeTexture,
             long nativeEngine, long nativeStream);
@@ -523,4 +587,9 @@ public class Texture {
     private static native void nGenerateMipmaps(long nativeTexture, long nativeEngine);
 
     private static native boolean nIsStreamValidForTexture(long nativeTexture, long nativeStream);
+
+    private static native int nGeneratePrefilterMipmap(long nativeIndirectLight, long nativeEngine,
+        int width, int height, Buffer storage, int remaining, int left, int top,
+        int type, int alignment, int stride, int format, int[] faceOffsetsInBytes,
+        Object handler, Runnable callback, int sampleCount, boolean mirror);
 }

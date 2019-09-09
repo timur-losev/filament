@@ -19,7 +19,7 @@
 
 #include "upcast.h"
 
-#include "driver/DriverApi.h"
+#include "private/backend/DriverApi.h"
 
 #include <filament/SwapChain.h>
 
@@ -35,11 +35,11 @@ public:
     FSwapChain(FEngine& engine, void* nativeWindow, uint64_t flags);
     void terminate(FEngine& engine) noexcept;
 
-    void makeCurrent(driver::DriverApi& driverApi) noexcept {
-        driverApi.makeCurrent(mSwapChain);
+    void makeCurrent(backend::DriverApi& driverApi) noexcept {
+        driverApi.makeCurrent(mSwapChain, mSwapChain);
     }
 
-    void commit(driver::DriverApi& driverApi) noexcept {
+    void commit(backend::DriverApi& driverApi) noexcept {
         driverApi.commit(mSwapChain);
     }
 
@@ -51,8 +51,16 @@ public:
         return (mConfigFlags & CONFIG_TRANSPARENT) != 0;
     }
 
+    constexpr bool isReadable() const noexcept {
+        return (mConfigFlags & CONFIG_READABLE) != 0;
+    }
+
+    backend::Handle<backend::HwSwapChain> getHwHandle() const noexcept {
+      return mSwapChain;
+    }
+
 private:
-    Handle<HwSwapChain> mSwapChain;
+    backend::Handle<backend::HwSwapChain> mSwapChain;
     void* mNativeWindow = nullptr;
     uint64_t mConfigFlags = 0;
 };

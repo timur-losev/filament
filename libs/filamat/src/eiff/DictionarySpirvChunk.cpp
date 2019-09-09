@@ -16,20 +16,34 @@
 
 #include "DictionarySpirvChunk.h"
 
+#include <smolv.h>
+
 namespace filamat {
 
-DictionarySpirvChunk::DictionarySpirvChunk(BlobDictionary& dictionary) :
-        Chunk(ChunkType::DictionarySpirv), mDictionary(dictionary){
+DictionarySpirvChunk::DictionarySpirvChunk(BlobDictionary&& dictionary, bool stripDebugInfo) :
+        Chunk(ChunkType::DictionarySpirv), mDictionary(dictionary), mStripDebugInfo(stripDebugInfo) {
 }
 
 void DictionarySpirvChunk::flatten(Flattener& f) {
-    // TODO: for now the compression option is always 0, fix this.
-    f.writeUint32(0);
+
+    // For now, 1 is the only acceptable compression scheme.
+    f.writeUint32(1);
+
+    uint32_t flags = 0;
+    if (mStripDebugInfo) {
+        flags |= smolv::kEncodeFlagStripDebugInfo;
+    }
+
     f.writeUint32(mDictionary.getBlobCount());
     for (size_t i = 0 ; i < mDictionary.getBlobCount() ; i++) {
-        const std::string& blob = mDictionary.getBlob(i);
-        f.writeBlob(blob.data(), blob.size());
+        const std::string& spirv = mDictionary.getBlob(i);
+        smolv::ByteArray compressed;
+        if (!smolv::Encode(spirv.data(), spirv.size(), compressed, flags)) {
+            utils::slog.e << "Error with SPIRV compression" << utils::io::endl;
+        }
+
+        f.writeBlob((const char*) compressed.data(), compressed.size());
     }
 }
 
-} // namespace filaflat
+} // namespace filamat

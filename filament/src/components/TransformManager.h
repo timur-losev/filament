@@ -62,6 +62,16 @@ public:
 
     void setParent(Instance i, Instance newParent) noexcept;
 
+    utils::Entity getParent(Instance i) const noexcept;
+
+    size_t getChildCount(Instance i) const noexcept;
+
+    size_t getChildren(Instance i, utils::Entity* children, size_t count) const noexcept;
+
+    children_iterator getChildrenBegin(Instance parent) const noexcept;
+
+    children_iterator getChildrenEnd(Instance parent) const noexcept;
+
     void openLocalTransformTransaction() noexcept;
 
     void commitLocalTransformTransaction() noexcept;
@@ -93,6 +103,7 @@ private:
     void swapNode(Instance i, Instance j) noexcept;
     static void transformChildren(Sim& manager, Instance firstChild) noexcept;
 
+    friend class TransformManager::children_iterator;
 
     enum {
         LOCAL,          // local transform (relative to parent), world if no parent
@@ -121,7 +132,7 @@ private:
         struct Proxy {
             // all of this gets inlined
             UTILS_ALWAYS_INLINE
-            constexpr Proxy(Base& sim, utils::EntityInstanceBase::Type i) noexcept
+            Proxy(Base& sim, utils::EntityInstanceBase::Type i) noexcept
                     : local{ sim, i } { }
 
             union {
@@ -135,10 +146,10 @@ private:
             };
         };
 
-        UTILS_ALWAYS_INLINE constexpr Proxy operator[](Instance i) noexcept {
+        UTILS_ALWAYS_INLINE Proxy operator[](Instance i) noexcept {
             return { *this, i };
         }
-        UTILS_ALWAYS_INLINE constexpr const Proxy operator[](Instance i) const noexcept {
+        UTILS_ALWAYS_INLINE const Proxy operator[](Instance i) const noexcept {
             return { const_cast<Sim&>(*this), i };
         }
     };

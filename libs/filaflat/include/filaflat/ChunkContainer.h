@@ -18,9 +18,9 @@
 #define TNT_FILAFLAT_CHUNK_CONTAINER_H
 
 
-#include <filaflat/FilaflatDefs.h>
-
 #include <utils/compiler.h>
+
+#include <filament/MaterialChunkType.h>
 
 #include <tsl/robin_map.h>
 
@@ -30,10 +30,10 @@ class Unflattener;
 
 // Allows to build a map of chunks in a Package and get direct individual access based on chunk ID.
 class UTILS_PUBLIC ChunkContainer {
+public:
     using Type = filamat::ChunkType;
 
-public:
-    ChunkContainer(void* data, size_t size) : mData(data), mSize(size) {}
+    ChunkContainer(void const* data, size_t size) : mData(data), mSize(size) {}
 
     ~ChunkContainer() = default;
 
@@ -69,20 +69,20 @@ public:
         return mChunks.at(type).start + mChunks.at(type).size;
     }
 
-    size_t getChunkSize(Type type) const noexcept {
-        return mChunks.at(type).size;
-    }
-
     bool hasChunk(Type type) const noexcept {
         return mChunks.find(type) != mChunks.end();
     }
 
+    void const* getData() const { return mData; }
+
+    size_t getSize() const { return mSize; }
+
 private:
     bool parseChunk(Unflattener& unflattener);
 
-    void* mData;
+    void const* mData;
     size_t mSize;
-    tsl::robin_map<filamat::ChunkType, ChunkContainer::ChunkDesc> mChunks;
+    tsl::robin_map<Type, ChunkContainer::ChunkDesc> mChunks;
 };
 
 } // namespace filaflat

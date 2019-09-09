@@ -21,7 +21,7 @@
 
 #include <filament/FilamentAPI.h>
 
-#include <filament/driver/DriverEnums.h>
+#include <backend/DriverEnums.h>
 
 #include <utils/compiler.h>
 
@@ -37,10 +37,10 @@ namespace filament {
 class UTILS_PUBLIC Fence : public FilamentAPI {
 public:
     //! Special \p timeout value to disable wait()'s timeout.
-    static constexpr uint64_t FENCE_WAIT_FOR_EVER = driver::FENCE_WAIT_FOR_EVER;
+    static constexpr uint64_t FENCE_WAIT_FOR_EVER = backend::FENCE_WAIT_FOR_EVER;
 
     //! Error codes for Fence::wait()
-    using FenceStatus = driver::FenceStatus;
+    using FenceStatus = backend::FenceStatus;
 
     //! Type of the Fence being created
     enum class Type : uint8_t {
@@ -55,7 +55,7 @@ public:
         /**
          * Synchronization with the GPU
          *
-         * Calling wait() on a HARD fence will only wait for all commands prior to the Fence to
+         * Calling wait() on a HARD fence will wait for all commands prior to the Fence to
          * have completed on the GPU.
          */
         HARD
@@ -64,7 +64,7 @@ public:
     /** Mode controls the behavior of the command stream when calling wait()
      *
      * @attention
-     * It would be unwise to call call `wait(..., Mode::DONT_FLUSH)` from the same thread
+     * It would be unwise to call `wait(..., Mode::DONT_FLUSH)` from the same thread
      * the Fence was created, as it would most certainly create a dead-lock.
      */
     enum class Mode : uint8_t {

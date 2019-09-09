@@ -75,7 +75,7 @@ public:
      *
      * @param name      Name of the parameter as defined by Material. Cannot be nullptr.
      * @param type      Whether the color value is encoded as Linear or sRGB.
-     * @param color     Array of read, green, blue chanels values.
+     * @param color     Array of read, green, blue channels values.
      * @throws utils::PreConditionPanic if name doesn't exist or no-op if exceptions are disabled.
      */
     void setParameter(const char* name, RgbType type, math::float3 color) noexcept;
@@ -86,7 +86,7 @@ public:
      *
      * @param name      Name of the parameter as defined by Material. Cannot be nullptr.
      * @param type      Whether the color value is encoded as Linear or sRGB/A.
-     * @param color     Array of read, green, blue and alpha chanels values.
+     * @param color     Array of read, green, blue and alpha channels values.
      * @throws utils::PreConditionPanic if name doesn't exist or no-op if exceptions are disabled.
      */
     void setParameter(const char* name, RgbaType type, math::float4 color) noexcept;
@@ -105,6 +105,51 @@ public:
      * Returns the scissor rectangle to its default setting, which encompasses the View.
      */
     void unsetScissor() noexcept;
+
+    /**
+     * Sets a polygon offset that will be applied to all renderables drawn with this material
+     * instance.
+     *
+     *  The value of the offset is scale * dz + r * constant, where dz is the change in depth
+     *  relative to the screen area of the triangle, and r is the smallest value that is guaranteed
+     *  to produce a resolvable offset for a given implementation. This offset is added before the
+     *  depth test.
+     *
+     *  @warning using a polygon offset other than zero has a significant negative performance
+     *  impact, as most implementations have to disable early depth culling. DO NOT USE unless
+     *  absolutely necessary.
+     *
+     * @param scale scale factor used to create a variable depth offset for each triangle
+     * @param constant scale factor used to create a constant depth offset for each triangle
+     */
+    void setPolygonOffset(float scale, float constant) noexcept;
+
+    /**
+     * Overrides the minimum alpha value a fragment must have to not be discarded when the blend
+     * mode is MASKED. Defaults to 0.4 if it has not been set in the parent Material. The specified
+     * value should be between 0 and 1 and will be clamped if necessary.
+     */
+    void setMaskThreshold(float threshold) noexcept;
+
+    /**
+     * Sets the screen space variance of the filter kernel used when applying specular
+     * anti-aliasing. The default value is set to 0.15. The specified value should be between
+     * 0 and 1 and will be clamped if necessary.
+     */
+    void setSpecularAntiAliasingVariance(float variance) noexcept;
+
+    /**
+     * Sets the clamping threshold used to suppress estimation errors when applying specular
+     * anti-aliasing. The default value is set to 0.2. The specified value should be between 0
+     * and 1 and will be clamped if necessary.
+     */
+    void setSpecularAntiAliasingThreshold(float threshold) noexcept;
+
+    /**
+     * Enables or disables double-sided lighting if the parent Material has double-sided capability,
+     * otherwise prints a warning. Does not affect backface culling.
+     */
+    void setDoubleSided(bool doubleSided) noexcept;
 };
 
 } // namespace filament

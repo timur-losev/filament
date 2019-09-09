@@ -18,11 +18,19 @@ package com.google.android.filament.tungsten.compiler
 
 import com.google.android.filament.tungsten.model.Node
 import com.google.android.filament.tungsten.model.NodeId
-import com.google.android.filament.tungsten.model.createAdderNode
+import com.google.android.filament.tungsten.model.createAddNode
+import com.google.android.filament.tungsten.model.createDivideNode
 import com.google.android.filament.tungsten.model.createFloat2ConstantNode
 import com.google.android.filament.tungsten.model.createFloat3ConstantNode
 import com.google.android.filament.tungsten.model.createFloat3ParameterNode
+import com.google.android.filament.tungsten.model.createFloatConstantNode
+import com.google.android.filament.tungsten.model.createMultiplyNode
+import com.google.android.filament.tungsten.model.createPannerNode
 import com.google.android.filament.tungsten.model.createShaderNode
+import com.google.android.filament.tungsten.model.createSubtractNode
+import com.google.android.filament.tungsten.model.createTexCoordNode
+import com.google.android.filament.tungsten.model.createTextureSampleNode
+import com.google.android.filament.tungsten.model.createTimeNode
 import com.google.android.filament.tungsten.model.serialization.INodeFactory
 
 class NodeRegistry : INodeFactory {
@@ -43,10 +51,18 @@ class NodeRegistry : INodeFactory {
 
     init {
         mNodes = listOf(
-                NodeEntry("Add", "adder", createAdderNode),
+                NodeEntry("Add", "add", createAddNode),
+                NodeEntry("Subtract", "subtract", createSubtractNode),
+                NodeEntry("Multiply", "multiply", createMultiplyNode),
+                NodeEntry("Divide", "divide", createDivideNode),
+                NodeEntry("Constant float", "floatConstant", createFloatConstantNode),
                 NodeEntry("Constant float2", "float2Constant", createFloat2ConstantNode),
                 NodeEntry("Constant float3", "float3Constant", createFloat3ConstantNode),
                 NodeEntry("Float3 parameter", "float3Parameter", createFloat3ParameterNode),
+                NodeEntry("Texture sampler", "textureSample", createTextureSampleNode),
+                NodeEntry("Time", "time", createTimeNode),
+                NodeEntry("Texture coordinates", "texCoord", createTexCoordNode),
+                NodeEntry("Texture panner", "panner", createPannerNode),
                 NodeEntry("Shader", "shader", createShaderNode)
         )
         nodeLabelsForMenu = mNodes

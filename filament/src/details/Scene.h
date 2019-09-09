@@ -23,7 +23,6 @@
 #include "components/TransformManager.h"
 
 #include "details/Culler.h"
-#include "details/GpuLightBuffer.h"
 
 #include "Allocators.h"
 
@@ -47,7 +46,6 @@ class FEngine;
 class FIndirectLight;
 class FRenderer;
 class FSkybox;
-class GpuLightBuffer;
 
 
 class FScene : public Scene {
@@ -64,10 +62,12 @@ public:
     FIndirectLight const* getIndirectLight() const noexcept { return mIndirectLight; }
 
     void addEntity(utils::Entity entity);
+    void addEntities(const utils::Entity* entities, size_t count);
     void remove(utils::Entity entity);
 
     size_t getRenderableCount() const noexcept;
     size_t getLightCount() const noexcept;
+    bool hasEntity(utils::Entity entity) const noexcept;
 
 public:
     /*
@@ -82,9 +82,13 @@ public:
     ~FScene() noexcept;
     void terminate(FEngine& engine);
 
-    void prepare(const math::mat4f& worldOriginTansform);
-    void prepareDynamicLights(const CameraInfo& camera, ArenaScope& arena) noexcept;
-    void computeBounds(Aabb& castersBox, Aabb& receiversBox, uint32_t visibleLayers) const noexcept;
+    void prepare(const math::mat4f& worldOriginTransform);
+    void prepareDynamicLights(const CameraInfo& camera, ArenaScope& arena, backend::Handle<backend::HwUniformBuffer> lightUbh) noexcept;
+
+
+    filament::backend::Handle<backend::HwUniformBuffer> getRenderableUBO() const noexcept {
+        return mRenderableViewUbh;
+    }
 
     /*
      * Storage for per-frame renderable data
@@ -94,10 +98,10 @@ public:
         RENDERABLE_INSTANCE,    //  4 instance of the Renderable component
         WORLD_TRANSFORM,        // 16 instance of the Transform component
         VISIBILITY_STATE,       //  1 visibility data of the component
-        UBH,                    //  4 uniform buffer handle
         BONES_UBH,              //  4 bones uniform buffer handle
         WORLD_AABB_CENTER,      // 12 world-space bounding box center of the renderable
         VISIBLE_MASK,           //  1 each bit represents a visibility in a pass
+        MORPH_WEIGHTS,          //  4 floats for morphing
 
         // These are not needed anymore after culling
         LAYERS,                 //  1 layers
@@ -109,17 +113,17 @@ public:
     };
 
     using RenderableSoa = utils::StructureOfArrays<
-            utils::EntityInstance<RenderableManager>,
-            math::mat4f,
-            FRenderableManager::Visibility,
-            Handle<HwUniformBuffer>,
-            Handle<HwUniformBuffer>,
-            math::float3,
-            Culler::result_type,
-            uint8_t,
-            math::float3,
-            utils::Slice<FRenderPrimitive>,
-            uint32_t
+            utils::EntityInstance<RenderableManager>,   // RENDERABLE_INSTANCE
+            math::mat4f,                                // WORLD_TRANSFORM
+            FRenderableManager::Visibility,             // VISIBILITY_STATE
+            backend::Handle<backend::HwUniformBuffer>,  // BONES_UBH
+            math::float3,                               // WORLD_AABB_CENTER
+            Culler::result_type,                        // VISIBLE_MASK
+            math::float4,                               // MORPH_WEIGHTS
+            uint8_t,                                    // LAYERS
+            math::float3,                               // WORLD_AABB_EXTENT
+            utils::Slice<FRenderPrimitive>,             // PRIMITIVES
+            uint32_t                                    // SUMMED_PRIMITIVE_COUNT
     >;
 
     RenderableSoa const& getRenderableData() const noexcept { return mRenderableData; }
@@ -127,13 +131,13 @@ public:
 
     static inline uint32_t getPrimitiveCount(RenderableSoa const& soa,
             uint32_t first, uint32_t last) noexcept {
-        // the caller must guarantee that last is dereferencable
+        // the caller must guarantee that last is dereferenceable
         return soa.elementAt<SUMMED_PRIMITIVE_COUNT>(last) -
                 soa.elementAt<SUMMED_PRIMITIVE_COUNT>(first);
     }
 
     static inline uint32_t getPrimitiveCount(RenderableSoa const& soa, uint32_t last) noexcept {
-        // the caller must guarantee that last is dereferencable
+        // the caller must guarantee that last is dereferenceable
         return soa.elementAt<SUMMED_PRIMITIVE_COUNT>(last);
     }
 
@@ -160,7 +164,7 @@ public:
     LightSoa const& getLightData() const noexcept { return mLightData; }
     LightSoa& getLightData() noexcept { return mLightData; }
 
-    void updateUBOs(utils::Range<uint32_t> visibleRenderables) const noexcept;
+    void updateUBOs(utils::Range<uint32_t> visibleRenderables, backend::Handle<backend::HwUniformBuffer> renderableUbh) noexcept;
 
 private:
     static inline void computeLightRanges(math::float2* zrange,
@@ -172,14 +176,24 @@ private:
     FEngine& mEngine;
     FSkybox const* mSkybox = nullptr;
     FIndirectLight const* mIndirectLight = nullptr;
-    GpuLightBuffer mGpuLightData;
 
-    // list of Entities in the scene. We use a robin_set<> so we can do efficient removes
-    // (a vector<> could work, but removes would be O(n)). robin_set<> iterates almost as
-    // nicely as vector<>, which is a good compromise.
+    /*
+     * list of Entities in the scene. We use a robin_set<> so we can do efficient removes
+     * (a vector<> could work, but removes would be O(n)). robin_set<> iterates almost as
+     * nicely as vector<>, which is a good compromise.
+     */
     tsl::robin_set<utils::Entity> mEntities;
+
+
+    /*
+     * The data below is valid only during a view pass. i.e. if a scene is used in multiple
+     * views, the data below is update for each view.
+     * In essence, this data should be owned by View, but it's so scene-specific, that for now
+     * we store it here.
+     */
     RenderableSoa mRenderableData;
     LightSoa mLightData;
+    backend::Handle<backend::HwUniformBuffer> mRenderableViewUbh; // This is actually owned by the view.
 };
 
 FILAMENT_UPCAST(Scene)

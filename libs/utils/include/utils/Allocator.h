@@ -18,15 +18,18 @@
 #define TNT_UTILS_ALLOCATOR_H
 
 
-#include <assert.h>
-#include <stddef.h>
-#include <stdlib.h>
+#include <utils/compiler.h>
+#include <utils/memalign.h>
+#include <utils/Mutex.h>
+#include <utils/SpinLock.h>
 
 #include <atomic>
 #include <mutex>
+#include <type_traits>
 
-#include <utils/compiler.h>
-#include <utils/memalign.h>
+#include <assert.h>
+#include <stddef.h>
+#include <stdlib.h>
 
 namespace utils {
 
@@ -122,7 +125,7 @@ public:
 
     // LinearAllocator shouldn't have a free() method
     // it's only needed to be compatible with STLAllocator<> below
-    void free(void*) UTILS_RESTRICT noexcept { }
+    void free(void*, size_t) UTILS_RESTRICT noexcept { }
 
 private:
     void* mBegin = nullptr;
@@ -155,6 +158,10 @@ public:
         aligned_free(p);
     }
 
+    void free(void* p, size_t) noexcept {
+        free(p);
+    }
+
     // Allocators can't be copied
     HeapAllocator(const HeapAllocator& rhs) = delete;
     HeapAllocator& operator=(const HeapAllocator& rhs) = delete;
@@ -170,16 +177,7 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 
-class FreeListBase {
-public:
-    struct Node {
-        Node* next;
-    };
-    static Node* init(void* begin, void* end,
-            size_t elementSize, size_t alignment, size_t extra) noexcept;
-};
-
-class FreeList : private FreeListBase {
+class FreeList {
 public:
     FreeList() noexcept = default;
     FreeList(void* begin, void* end, size_t elementSize, size_t alignment, size_t extra) noexcept;
@@ -188,7 +186,7 @@ public:
     FreeList(FreeList&& rhs) noexcept = default;
     FreeList& operator=(FreeList&& rhs) noexcept = default;
 
-    void* get() noexcept {
+    void* pop() noexcept {
         Node* const head = mHead;
         mHead = head ? head->next : nullptr;
         // this could indicate a use after free
@@ -196,7 +194,7 @@ public:
         return head;
     }
 
-    void put(void* p) noexcept {
+    void push(void* p) noexcept {
         assert(p);
         assert(p >= mBegin && p < mEnd);
         // TODO: assert this is one of our pointer (i.e.: it's address match one of ours)
@@ -205,11 +203,18 @@ public:
         mHead = head;
     }
 
-    void *getCurrent() noexcept {
+    void *getFirst() noexcept {
         return mHead;
     }
 
 private:
+    struct Node {
+        Node* next;
+    };
+
+    static Node* init(void* begin, void* end,
+            size_t elementSize, size_t alignment, size_t extra) noexcept;
+
     Node* mHead = nullptr;
 
 #ifndef NDEBUG
@@ -219,7 +224,7 @@ private:
 #endif
 };
 
-class AtomicFreeList : private FreeListBase {
+class AtomicFreeList {
 public:
     AtomicFreeList() noexcept = default;
     AtomicFreeList(void* begin, void* end,
@@ -227,29 +232,93 @@ public:
     AtomicFreeList(const FreeList& rhs) = delete;
     AtomicFreeList& operator=(const FreeList& rhs) = delete;
 
-    void* get() noexcept {
-        Node* head = mHead.load(std::memory_order_relaxed);
-        while (head && !mHead.compare_exchange_weak(head, head->next,
-                std::memory_order_release, std::memory_order_relaxed)) {
+    void* pop() noexcept {
+        Node* const storage = mStorage;
+
+        HeadPtr currentHead = mHead.load();
+        while (currentHead.offset >= 0) {
+            // The value of "next" we load here might already contain application data if another
+            // thread raced ahead of us. But in that case, the computed "newHead" will be discarded
+            // since compare_exchange_weak fails. Then this thread will loop with the updated
+            // value of currentHead, and try again.
+            Node* const next = storage[currentHead.offset].next.load(std::memory_order_relaxed);
+            const HeadPtr newHead{ next ? int32_t(next - storage) : -1, currentHead.tag + 1 };
+            // In the rare case that the other thread that raced ahead of us already returned the 
+            // same mHead we just loaded, but it now has a different "next" value, the tag field will not 
+            // match, and compare_exchange_weak will fail and prevent that particular race condition.
+            if (mHead.compare_exchange_weak(currentHead, newHead)) {
+                // This assert needs to occur after we have validated that there was no race condition
+                // Otherwise, next might already contain application data, if another thread
+                // raced ahead of us after we loaded mHead, but before we loaded mHead->next.
+                assert(!next || next >= storage);
+                break;
+            }
         }
-        return head;
+        void* p = (currentHead.offset >= 0) ? (storage + currentHead.offset) : nullptr;
+        assert(!p || p >= storage);
+        return p;
     }
 
-    void put(void* p) noexcept {
-        assert(p);
-        Node* head = static_cast<Node*>(p);
-        head->next = mHead.load(std::memory_order_relaxed);
-        while (!mHead.compare_exchange_weak(head->next, head,
-                std::memory_order_release, std::memory_order_relaxed)) {
-        }
+    void push(void* p) noexcept {
+        Node* const storage = mStorage;
+        assert(p && p >= storage);
+        Node* const node = static_cast<Node*>(p);
+        HeadPtr currentHead = mHead.load();
+        HeadPtr newHead = { int32_t(node - storage), currentHead.tag + 1 };
+        do {
+            newHead.tag = currentHead.tag + 1;
+            Node* const n = (currentHead.offset >= 0) ? (storage + currentHead.offset) : nullptr;
+            node->next.store(n, std::memory_order_relaxed);
+        } while(!mHead.compare_exchange_weak(currentHead, newHead));
     }
 
-    void* getCurrent() noexcept {
-        return mHead.load(std::memory_order_relaxed);
+    void* getFirst() noexcept {
+        return mStorage + mHead.load(std::memory_order_relaxed).offset;
     }
 
 private:
-    std::atomic<Node*> mHead;
+    struct Node {
+        // This should be a regular (non-atomic) pointer, but this causes TSAN to complain
+        // about a data-race that exists but is benin. We always use this atomic<> in
+        // relaxed mode.
+        // The data race TSAN complains about is when a pop() is interrupted by a
+        // pop() + push() just after mHead->next is read -- it appears as though it is written
+        // without synchronization (by the push), however in that case, the pop's CAS will fail
+        // and things will auto-correct.
+        //
+        //    Pop()                       |
+        //     |                          |
+        //   read head->next              |
+        //     |                        pop()
+        //     |                          |
+        //     |                        read head->next
+        //     |                         CAS, tag++
+        //     |                          |
+        //     |                        push()
+        //     |                          |
+        // [TSAN: data-race here]       write head->next
+        //     |                         CAS, tag++
+        //    CAS fails
+        //     |
+        //   read head->next
+        //     |
+        //    CAS, tag++
+        //
+        std::atomic<Node*> next;
+    };
+
+    // This struct is using a 32-bit offset into the arena rather than
+    // a direct pointer, because together with the 32-bit tag, it needs to 
+    // fit into 8 bytes. If it was any larger, it would not be possible to
+    // access it atomically.
+    struct alignas(8) HeadPtr {
+        int32_t offset;
+        uint32_t tag;
+    };
+
+    std::atomic<HeadPtr> mHead{};
+
+    Node* mStorage = nullptr;
 };
 
 // ------------------------------------------------------------------------------------------------
@@ -268,11 +337,11 @@ public:
         assert(size <= ELEMENT_SIZE);
         assert(alignment <= ALIGNMENT);
         assert(offset == OFFSET);
-        return mFreeList.get();
+        return mFreeList.pop();
     }
 
-    void free(void* p) noexcept {
-        mFreeList.put(p);
+    void free(void* p, size_t = ELEMENT_SIZE) noexcept {
+        mFreeList.push(p);
     }
 
     size_t getSize() const noexcept { return ELEMENT_SIZE; }
@@ -296,7 +365,7 @@ public:
     // API specific to this allocator
 
     void *getCurrent() noexcept {
-        return mFreeList.getCurrent();
+        return mFreeList.getFirst();
     }
 
 private:
@@ -362,57 +431,16 @@ struct NoLock {
     void unlock() noexcept { }
 };
 
-class SpinLock {
-    std::atomic_flag mLock = ATOMIC_FLAG_INIT;
+using SpinLock = utils::SpinLock;
 
-public:
-    void lock() noexcept {
-        UTILS_PREFETCHW(&mLock);
-#ifdef __ARM_ACLE
-        // we signal an event on this CPU, so that the first yield() will be a no-op,
-        // and falls through the test_and_set(). This is more efficient than a while { }
-        // construct.
-        UTILS_SIGNAL_EVENT();
-        do {
-            yield();
-        } while (mLock.test_and_set(std::memory_order_acquire));
-#else
-        goto start;
-        do {
-            yield();
-start: ;
-        } while (mLock.test_and_set(std::memory_order_acquire));
-#endif
-    }
-
-    void unlock() noexcept {
-        mLock.clear(std::memory_order_release);
-#ifdef __ARM_ARCH_7A__
-        // on ARMv7a SEL is needed
-        UTILS_SIGNAL_EVENT();
-        // as well as a memory barrier is needed
-        __dsb(0xA);     // ISHST = 0xA (b1010)
-#else
-        // on ARMv8 we could avoid the call to SE, but we'de need to write the
-        // test_and_set() above by hand, so the WFE only happens without a STRX first.
-        UTILS_BROADCAST_EVENT();
-#endif
-    }
-
-private:
-    inline void yield() noexcept {
-        // on x86 call pause instruction, on ARM call WFE
-        UTILS_WAIT_FOR_EVENT();
-    }
-};
-
-using Mutex = std::mutex;
+using Mutex = utils::Mutex;
 
 } // namespace LockingPolicy
 
 
 namespace TrackingPolicy {
 
+// default no-op tracker
 struct Untracked {
     Untracked() noexcept = default;
     Untracked(const char* name, size_t size) noexcept { }
@@ -422,30 +450,34 @@ struct Untracked {
     void onRewind(void* addr) noexcept { }
 };
 
-// This high watermark tracker works only with allocator that either implement
-// free(void*, size_t), or reset() / rewind()
-
+// This just track the max memory usage and logs it in the destructor
 struct HighWatermark {
     HighWatermark() noexcept = default;
-    HighWatermark(const char* name, size_t size) noexcept
-            : mName(name), mSize(uint32_t(size)) { }
+    HighWatermark(const char* name, size_t size) noexcept : mName(name), mSize(uint32_t(size)) { }
     ~HighWatermark() noexcept;
-    void onAlloc(void* p, size_t size, size_t alignment, size_t extra) noexcept {
-        if (!mBase) { mBase = p; }
-        mCurrent += uint32_t(size);
-        mHighWaterMark = mCurrent > mHighWaterMark ? mCurrent : mHighWaterMark;
-    }
+    void onAlloc(void* p, size_t size, size_t alignment, size_t extra) noexcept;
     void onFree(void* p, size_t size) noexcept { mCurrent -= uint32_t(size); }
     void onReset() noexcept {  mCurrent = 0; }
     void onRewind(void const* addr) noexcept { mCurrent = uint32_t(uintptr_t(addr) - uintptr_t(mBase)); }
-
-private:
+protected:
     const char* mName = nullptr;
     void* mBase = nullptr;
     uint32_t mSize = 0;
     uint32_t mCurrent = 0;
     uint32_t mHighWaterMark = 0;
 };
+
+// This just fills buffers with known values to help catch uninitialized access and use after free.
+// It also tracks the high water mark
+struct Debug : protected HighWatermark {
+    Debug() noexcept = default;
+    Debug(const char* name, size_t size) noexcept : HighWatermark(name, size) { }
+    void onAlloc(void* p, size_t size, size_t alignment, size_t extra) noexcept;
+    void onFree(void* p, size_t = 0) noexcept;
+    void onReset() noexcept;
+    void onRewind(void* addr) noexcept;
+};
+
 
 } // namespace TrackingPolicy
 
@@ -534,7 +566,7 @@ public:
     void destroy(T* p) noexcept {
         if (p) {
             p->~T();
-            this->free((void*)p);
+            this->free((void*)p, sizeof(T));
         }
     }
 
@@ -636,7 +668,7 @@ public:
     }
 
     void* allocate(size_t size, size_t alignment = 1) noexcept {
-        return mArena.template alloc(size, alignment, 0);
+        return mArena.template alloc<uint8_t>(size, alignment, 0);
     }
 
     template <typename T>
@@ -671,26 +703,36 @@ public:
     struct rebind { using other = STLAllocator<OTHER, ARENA>; };
 
 public:
-    explicit STLAllocator(ARENA& arena) : mArena(arena) { }
+    // we don't make this explicit, so that we can initialize a vector using a STLAllocator
+    // from an Arena, avoiding to have to repeat the vector type.
+    STLAllocator(ARENA& arena) : mArena(arena) { } // NOLINT(google-explicit-constructor)
+
+    template<typename U>
+    explicit STLAllocator(STLAllocator<U, ARENA> const& rhs) : mArena(rhs.mArena) { }
 
     TYPE* allocate(std::size_t n) {
-        return static_cast<TYPE *>(mArena.alloc(n * sizeof(n), alignof(TYPE)));
+        return static_cast<TYPE *>(mArena.alloc(n * sizeof(TYPE), alignof(TYPE)));
     }
 
     void deallocate(TYPE* p, std::size_t n) {
-        mArena.free(p);
+        mArena.free(p, n * sizeof(TYPE));
+    }
+
+    // these should be out-of-class friends, but this doesn't seem to work with some compilers
+    // which complain about multiple definition each time a STLAllocator<> is instantiated.
+    template <typename U, typename A>
+    bool operator==(const STLAllocator<U, A>& lhs) noexcept {
+        return std::addressof(mArena) == std::addressof(lhs.mArena);
+    }
+
+    template <typename U, typename A>
+    bool operator!=(const STLAllocator<U, A>& lhs) noexcept {
+        return !operator==(lhs);
     }
 
 private:
-    template <typename T, typename U, typename A>
-    friend bool operator==(const STLAllocator<T, A>& rhs, const STLAllocator<U, A>& lhs) {
-        return &rhs.mArena == &lhs.mArena;
-    }
-
-    template <typename T, typename U, typename A>
-    friend bool operator!=(const STLAllocator<T, A>& rhs, const STLAllocator<U, A>& lhs) {
-        return !operator==(rhs, lhs);
-    }
+    template<typename U, typename A>
+    friend class STLAllocator;
 
     ARENA& mArena;
 };

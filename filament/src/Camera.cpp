@@ -25,7 +25,7 @@
 
 #include <math/scalar.h>
 
-using namespace math;
+using namespace filament::math;
 using namespace utils;
 
 namespace filament {
@@ -68,7 +68,7 @@ void FCamera::setLensProjection(double focalLength, double near, double far) noe
  * All methods for setting the projection funnel through here
  */
 
-void UTILS_NOINLINE FCamera::setCustomProjection(math::mat4 const& p, double near, double far) noexcept {
+void UTILS_NOINLINE FCamera::setCustomProjection(mat4 const& p, double near, double far) noexcept {
     mProjectionForCulling = p;
     mProjection = p;
     mNear = (float)near;
@@ -231,11 +231,11 @@ math::details::TMat44<T> inverseProjection(const math::details::TMat44<T>& p) no
 
 
 UTILS_NOINLINE
-math::mat4f FCamera::getViewMatrix(math::mat4f const& model) noexcept {
+mat4f FCamera::getViewMatrix(mat4f const& model) noexcept {
     return FCamera::rigidTransformInverse(model);
 }
 
-Frustum FCamera::getFrustum(math::mat4 const& projection, math::mat4f const& viewMatrix) noexcept {
+Frustum FCamera::getFrustum(mat4 const& projection, mat4f const& viewMatrix) noexcept {
     return Frustum(mat4f{ projection * viewMatrix });
 }
 
@@ -269,15 +269,15 @@ void Camera::setLensProjection(double focalLength, double near, double far) noex
     upcast(this)->setLensProjection(focalLength, near, far);
 }
 
-void Camera::setCustomProjection(math::mat4 const& projection, double near, double far) noexcept {
+void Camera::setCustomProjection(mat4 const& projection, double near, double far) noexcept {
     upcast(this)->setCustomProjection(projection, near, far);
 }
 
-const math::mat4& Camera::getProjectionMatrix() const noexcept {
+const mat4& Camera::getProjectionMatrix() const noexcept {
     return upcast(this)->getProjectionMatrix();
 }
 
-const math::mat4& Camera::getCullingProjectionMatrix() const noexcept {
+const mat4& Camera::getCullingProjectionMatrix() const noexcept {
     return upcast(this)->getCullingProjectionMatrix();
 }
 
@@ -289,11 +289,11 @@ float Camera::getCullingFar() const noexcept {
     return upcast(this)->getCullingFar();
 }
 
-void Camera::setModelMatrix(const math::mat4f& modelMatrix) noexcept {
+void Camera::setModelMatrix(const mat4f& modelMatrix) noexcept {
     upcast(this)->setModelMatrix(modelMatrix);
 }
 
-void Camera::lookAt(const math::float3& eye, const math::float3& center, float3 const& up) noexcept {
+void Camera::lookAt(const float3& eye, const float3& center, float3 const& up) noexcept {
     upcast(this)->lookAt(eye, center, up);
 }
 

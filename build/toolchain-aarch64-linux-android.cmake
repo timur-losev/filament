@@ -20,16 +20,39 @@ set(CMAKE_SYSTEM_NAME Linux)
 # this one not so much
 set(CMAKE_SYSTEM_VERSION 1)
 
+# android
+set(API_LEVEL 21)
+
 # architecture
 set(ARCH aarch64-linux-android)
 set(DIST_ARCH arm64-v8a)
 
 # toolchain
-set(TOOLCHAIN ${CMAKE_SOURCE_DIR}/toolchains/${CMAKE_HOST_SYSTEM_NAME}/${ARCH}-4.9)
+string(TOLOWER ${CMAKE_HOST_SYSTEM_NAME} HOST_NAME_L)
+file(TO_CMAKE_PATH $ENV{ANDROID_HOME} ANDROID_HOME_UNIX)
+
+if (EXISTS ${ANDROID_HOME_UNIX}/ndk-bundle)
+    set(TOOLCHAIN ${ANDROID_HOME_UNIX}/ndk-bundle/toolchains/llvm/prebuilt/${HOST_NAME_L}-x86_64)
+else()
+    file(GLOB NDK_VERSIONS LIST_DIRECTORIES true ${ANDROID_HOME_UNIX}/ndk/*)
+    list(SORT NDK_VERSIONS)
+    list(GET NDK_VERSIONS -1 NDK_VERSION)
+    get_filename_component(NDK_VERSION ${NDK_VERSION} NAME)
+    set(TOOLCHAIN ${ANDROID_HOME_UNIX}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/${HOST_NAME_L}-x86_64)
+endif()
 
 # specify the cross compiler
-set(CMAKE_C_COMPILER   ${TOOLCHAIN}/bin/${ARCH}-clang)
-set(CMAKE_CXX_COMPILER ${TOOLCHAIN}/bin/${ARCH}-clang++)
+set(COMPILER_SUFFIX)
+set(TOOL_SUFFIX)
+if(WIN32)
+    set(COMPILER_SUFFIX ".cmd")
+    set(TOOL_SUFFIX     ".exe")
+endif()
+set(CMAKE_C_COMPILER   ${TOOLCHAIN}/bin/${ARCH}${API_LEVEL}-clang${COMPILER_SUFFIX})
+set(CMAKE_CXX_COMPILER ${TOOLCHAIN}/bin/${ARCH}${API_LEVEL}-clang++${COMPILER_SUFFIX})
+set(CMAKE_AR           ${TOOLCHAIN}/bin/${ARCH}-ar${TOOL_SUFFIX}  CACHE FILEPATH "Archiver")
+set(CMAKE_RANLIB       ${TOOLCHAIN}/bin/${ARCH}-ranlib${TOOL_SUFFIX})
+set(CMAKE_STRIP        ${TOOLCHAIN}/bin/${ARCH}-strip${TOOL_SUFFIX})
 
 # where is the target environment
 set(CMAKE_FIND_ROOT_PATH  ${TOOLCHAIN}/sysroot)
@@ -52,3 +75,9 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fPIE -pie -static-libstdc
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static-libstdc++" CACHE STRING "Toolchain LDFLAGS")
 
 set(ANDROID TRUE)
+
+# we are compiling Android on Windows
+set(ANDROID_ON_WINDOWS FALSE)
+if(WIN32)
+    set(ANDROID_ON_WINDOWS TRUE)
+endif()

@@ -1,7 +1,3 @@
-//------------------------------------------------------------------------------
-// Input access (varyings)
-//------------------------------------------------------------------------------
-
 #if defined(HAS_ATTRIBUTE_COLOR)
 /** @public-api */
 vec4 getColor() {
@@ -23,8 +19,56 @@ vec2 getUV1() {
 }
 #endif
 
+#if defined(BLEND_MODE_MASKED)
+/** @public-api */
+float getMaskThreshold() {
+    return materialParams._maskThreshold;
+}
+#endif
+
+/** @public-api */
+highp mat3 getWorldTangentFrame() {
+    return shading_tangentToWorld;
+}
+
+/** @public-api */
+highp vec3 getWorldPosition() {
+    return shading_position;
+}
+
+/** @public-api */
+vec3 getWorldViewVector() {
+    return shading_view;
+}
+
+/** @public-api */
+vec3 getWorldNormalVector() {
+    return shading_normal;
+}
+
+/** @public-api */
+vec3 getWorldGeometricNormalVector() {
+    return shading_tangentToWorld[2];
+}
+
+/** @public-api */
+vec3 getWorldReflectedVector() {
+    return shading_reflected;
+}
+
+/** @public-api */
+float getNdotV() {
+    return shading_NoV;
+}
+
 #if defined(HAS_SHADOWING) && defined(HAS_DIRECTIONAL_LIGHTING)
-HIGHP vec3 getLightSpacePosition() {
+highp vec3 getLightSpacePosition() {
     return vertex_lightSpacePosition.xyz * (1.0 / vertex_lightSpacePosition.w);
+}
+#endif
+
+#if defined(MATERIAL_HAS_DOUBLE_SIDED_CAPABILITY)
+bool isDoubleSided() {
+    return materialParams._doubleSided;
 }
 #endif

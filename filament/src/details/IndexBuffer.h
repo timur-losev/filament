@@ -19,7 +19,7 @@
 
 #include "upcast.h"
 
-#include "driver/Handle.h"
+#include <backend/Handle.h>
 
 #include <filament/IndexBuffer.h>
 
@@ -37,16 +37,15 @@ public:
     // frees driver resources, object becomes invalid
     void terminate(FEngine& engine);
 
-    Handle<HwIndexBuffer> getHwHandle() const noexcept { return mHandle; }
+    backend::Handle<backend::HwIndexBuffer> getHwHandle() const noexcept { return mHandle; }
 
     size_t getIndexCount() const noexcept { return mIndexCount; }
 
-    void setBuffer(FEngine& engine,
-            BufferDescriptor&& buffer, uint32_t byteOffset = 0, uint32_t byteSize = 0);
+    void setBuffer(FEngine& engine, BufferDescriptor&& buffer, uint32_t byteOffset = 0);
 
 private:
     friend class IndexBuffer;
-    Handle<HwIndexBuffer> mHandle;
+    backend::Handle<backend::HwIndexBuffer> mHandle;
     uint32_t mIndexCount;
 };
 
